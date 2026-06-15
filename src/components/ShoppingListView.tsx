@@ -94,7 +94,7 @@ export function ShoppingListView({
 	const generateExportText = () => {
 		const header =
 			language === 'ru' ? '🛒 Список покупок:' : '🛒 Shopping List:';
-		const lines = items.map((item, i) => `${i + 1}. ${item.name}`);
+		const lines = items.map((item, i) => `${i + 1}. ${item.ingredientName}`);
 		return `${header}\n\n${lines.join('\n')}`;
 	};
 
@@ -226,7 +226,7 @@ export function ShoppingListView({
 							<span
 								className={`truncate ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
 							>
-								{item.name}
+								{item.ingredientName}
 							</span>
 						</div>
 						<div className='flex items-center gap-1 shrink-0 ml-2'>

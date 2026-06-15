@@ -163,14 +163,7 @@ function AppContent() {
 						onToggle={toggleShoppingItem}
 						onRemove={removeFromShoppingList}
 						onClear={clearShoppingList}
-						// Точечно меняем только эту строку:
-						onAdd={(name: string) => {
-							addShoppingItem({
-								id: crypto.randomUUID(),
-								name: name,
-								checked: false,
-							} as any);
-						}}
+						onAdd={(name: string) => addShoppingItem(name)}
 					/>
 				)}
 
