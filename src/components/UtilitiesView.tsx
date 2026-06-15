@@ -478,70 +478,75 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                       </td>
 
                       {/* 1 cup */}
-                      <td className="px-3 py-3 text-center">
-                        <span className={`text-sm font-bold ${theme.textAccent}`}>
-                          {row.cupWeight}
-                        </span>
-                        <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                      <td className="px-3 py-3 text-center transition-all duration-200">
+                        {result ? (
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className="text-sm font-bold text-emerald-600">
+                              {formatAmount(result.cups)}
+                            </span>
+                            <span className={`text-[10px] ${theme.textSecondary}`}>{getLabel('cup')}</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className={`text-sm font-bold ${theme.textAccent}`}>{row.cupWeight}</span>
+                            <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                          </div>
+                        )}
                       </td>
 
                       {/* 1 tbsp */}
-                      <td className="px-3 py-3 text-center">
-                        <span className={`text-sm font-bold ${theme.textAccent}`}>
-                          {row.tbspWeight}
-                        </span>
-                        <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                      <td className="px-3 py-3 text-center transition-all duration-200">
+                        {result ? (
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className="text-sm font-bold text-emerald-600">
+                              {formatAmount(result.tbsp)}
+                            </span>
+                            <span className={`text-[10px] ${theme.textSecondary}`}>{getLabel('tbsp')}</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className={`text-sm font-bold ${theme.textAccent}`}>{row.tbspWeight}</span>
+                            <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                          </div>
+                        )}
                       </td>
 
                       {/* 1 tsp */}
-                      <td className="px-3 py-3 text-center">
-                        <span className={`text-sm font-bold ${theme.textAccent}`}>
-                          {row.tspWeight}
-                        </span>
-                        <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                      <td className="px-3 py-3 text-center transition-all duration-200">
+                        {result ? (
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className="text-sm font-bold text-emerald-600">
+                              {formatAmount(result.tsp)}
+                            </span>
+                            <span className={`text-[10px] ${theme.textSecondary}`}>{getLabel('tsp')}</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className={`text-sm font-bold ${theme.textAccent}`}>{row.tspWeight}</span>
+                            <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Custom input */}
                       <td className="px-4 py-2">
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="number"
-                              min="0"
-                              value={inputVal}
-                              onChange={(e) =>
-                                setCustomInputs((prev) => ({
-                                  ...prev,
-                                  [row.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="0"
-                              className={`w-20 px-2 py-1 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm text-center focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder}`}
-                            />
-                            <span className={`text-xs ${theme.textSecondary}`}>{getLabel('g')}</span>
-                          </div>
-                          {result && (
-                            <div className="space-y-0.5 text-xs">
-                              <div className="flex items-center gap-1">
-                                <span className={`text-[10px] ${theme.textSecondary} w-8`}>{getLabel('cup')}:</span>
-                                <span className={`font-semibold ${theme.textAccent}`}>
-                                  {formatAmount(result.cups)}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className={`text-[10px] ${theme.textSecondary} w-8`}>{getLabel('tbsp')}:</span>
-                                <span className={`font-semibold ${theme.textAccent}`}>
-                                  {formatAmount(result.tbsp)}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className={`text-[10px] ${theme.textSecondary} w-8`}>{getLabel('tsp')}:</span>
-                                <span className={`font-semibold ${theme.textAccent}`}>
-                                  {formatAmount(result.tsp)}
-                                </span>
-                              </div>
-                            </div>
-                          )}
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            value={inputVal}
+                            onChange={(e) =>
+                              setCustomInputs((prev) => ({
+                                ...prev,
+                                [row.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="0"
+                            className={`w-20 px-2 py-1.5 ${theme.inputBg} ${theme.inputText} border ${
+                              result ? 'border-emerald-400' : theme.inputBorder
+                            } rounded-lg text-sm text-center focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder} transition-colors`}
+                          />
+                          <span className={`text-xs ${theme.textSecondary}`}>{getLabel('g')}</span>
                         </div>
                       </td>
                     </tr>
