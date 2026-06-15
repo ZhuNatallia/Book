@@ -19,6 +19,7 @@ import {
   Trash2,
   X,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 
 interface UtilitiesViewProps {
@@ -547,6 +548,20 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                             } rounded-lg text-sm text-center focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder} transition-colors`}
                           />
                           <span className={`text-xs ${theme.textSecondary}`}>{getLabel('g')}</span>
+                          {inputVal && (
+                            <button
+                              onClick={() =>
+                                setCustomInputs((prev) => ({
+                                  ...prev,
+                                  [row.id]: '',
+                                }))
+                              }
+                              title={language === 'ru' ? 'Сбросить' : language === 'de' ? 'Zurücksetzen' : 'Reset'}
+                              className="p-1 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-orange-50 transition-colors flex-shrink-0"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
