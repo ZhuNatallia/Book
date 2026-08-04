@@ -208,7 +208,9 @@ function AppContent() {
 					/>
 				)}
 
-				{activeView === 'utilities' && <UtilitiesView recipes={recipes} />}
+				{activeView === 'utilities' && (
+					<UtilitiesView recipes={recipes} onOpenRecipe={handleOpenRecipe} />
+				)}
 			</main>
 
 			<BottomNav activeView={activeView} onViewChange={setActiveView} />

@@ -9,7 +9,7 @@ import {
 	Flame,
 	ChefHat,
 	Trash2,
-	Edit2,
+	Pencil,
 	UtensilsCrossed,
 	Home,
 } from 'lucide-react';
@@ -145,9 +145,10 @@ export function RecipeCard({
 							e.stopPropagation();
 							onEdit();
 						}}
+						title={t('edit')}
 						className={`p-2 ${theme.bgCard}/90 rounded-full shadow-md hover:bg-white transition-colors`}
 					>
-						<Edit2 className='w-4 h-4 text-gray-700' />
+						<Pencil className='w-4 h-4 text-gray-700' />
 					</button>
 					<button
 						onClick={(e) => {

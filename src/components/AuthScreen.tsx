@@ -31,17 +31,14 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     setError(null);
     setSocialLoading(provider);
     try {
-      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: getRedirectUrl(),
-          skipBrowserRedirect: true,
         },
       });
       if (oauthError) {
         setError(oauthError.message);
-      } else if (data?.url) {
-        window.open(data.url, '_blank', 'noopener,noreferrer');
       }
     } catch {
       setError(t('authErrorGeneric'));

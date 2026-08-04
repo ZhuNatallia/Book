@@ -17,5 +17,8 @@ CREATE POLICY "public_select_custom_conversions" ON custom_conversions
 CREATE POLICY "public_insert_custom_conversions" ON custom_conversions
   FOR INSERT TO anon WITH CHECK (true);
 
+CREATE POLICY "authenticated_insert_custom_conversions" ON custom_conversions
+  FOR INSERT TO authenticated WITH CHECK (true);
+
 CREATE POLICY "public_delete_custom_conversions" ON custom_conversions
   FOR DELETE TO anon USING (true);

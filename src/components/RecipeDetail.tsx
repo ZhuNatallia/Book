@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe, SpeechRecognition } from '../types';
-import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, CreditCard as Edit2, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame } from 'lucide-react';
+import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame } from 'lucide-react';
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;
@@ -172,9 +172,10 @@ export function RecipeDetail({
 				<div className='absolute top-4 right-4 flex gap-2'>
 					<button
 						onClick={onEdit}
+						title={t('edit')}
 						className='p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white transition-colors'
 					>
-						<Edit2 className='w-5 h-5 text-gray-700' />
+						<Pencil className='w-5 h-5 text-gray-700' />
 					</button>
 					<button
 						onClick={() => {
