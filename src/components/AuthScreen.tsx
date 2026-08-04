@@ -27,15 +27,22 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     return `${origin}/`;
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleOAuth = async (provider: 'google' | 'apple') => {
     setError(null);
-    setSocialLoading('google');
+    setSocialLoading(provider);
     try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: getRedirectUrl() },
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: getRedirectUrl(),
+          skipBrowserRedirect: true,
+        },
       });
-      if (oauthError) setError(oauthError.message);
+      if (oauthError) {
+        setError(oauthError.message);
+      } else if (data?.url) {
+        window.open(data.url, '_blank', 'noopener,noreferrer');
+      }
     } catch {
       setError(t('authErrorGeneric'));
     } finally {
@@ -43,21 +50,8 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     }
   };
 
-  const handleAppleSignIn = async () => {
-    setError(null);
-    setSocialLoading('apple');
-    try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: 'apple',
-        options: { redirectTo: getRedirectUrl() },
-      });
-      if (oauthError) setError(oauthError.message);
-    } catch {
-      setError(t('authErrorGeneric'));
-    } finally {
-      setSocialLoading(null);
-    }
-  };
+  const handleGoogleSignIn = () => handleOAuth('google');
+  const handleAppleSignIn = () => handleOAuth('apple');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
