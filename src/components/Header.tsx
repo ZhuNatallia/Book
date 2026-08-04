@@ -2,15 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
-import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check } from 'lucide-react';
+import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut } from 'lucide-react';
 
 interface HeaderProps {
   onAddRecipe: () => void;
+  onSignOut: () => void;
 }
 
 type SettingsView = 'main' | 'language' | 'theme';
 
-export function Header({ onAddRecipe }: HeaderProps) {
+export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -115,6 +116,15 @@ export function Header({ onAddRecipe }: HeaderProps) {
                             </span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
+                        </button>
+                        <button
+                          onClick={onSignOut}
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-500 hover:bg-rose-50 transition-colors`}
+                        >
+                          <LogOut className="w-5 h-5" />
+                          <span className="text-sm font-medium">
+                            {language === 'ru' ? 'Выйти' : language === 'de' ? 'Abmelden' : 'Sign Out'}
+                          </span>
                         </button>
                       </div>
                     </>

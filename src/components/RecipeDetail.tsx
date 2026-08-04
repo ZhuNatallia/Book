@@ -1,26 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe, SpeechRecognition } from '../types';
-import {
-	X,
-	Minus,
-	Plus,
-	Mic,
-	Play,
-	Pause,
-	SkipForward,
-	SkipBack,
-	Clock,
-	ShoppingBag,
-	ExternalLink,
-	Edit2,
-	Trash2,
-	Volume2,
-	ChefHat,
-	UtensilsCrossed,
-	Flame,
-} from 'lucide-react';
+import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, CreditCard as Edit2, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame } from 'lucide-react';
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;

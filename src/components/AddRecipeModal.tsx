@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
-import { X, Wand2, Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Upload, Camera, FileText } from 'lucide-react';
+import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, FileText } from 'lucide-react';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -264,7 +264,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
       title: language === 'ru' ? `Рецепт из ${urlHint}` : `Recipe from ${urlHint}`,
       description: language === 'ru' ? 'Импортировано по ссылке — заполните детали вручную' : 'Imported from link — fill in details manually',
       category: 'meat',
-      ingredients: [{ quantity: '1', unit: 'g', name: language === 'ru' ? 'Добавьте ингредиенты вручную' : 'Add ingredients manually' }],
+      ingredients: [{ quantity: 1, unit: 'g', name: language === 'ru' ? 'Добавьте ингредиенты вручную' : 'Add ingredients manually' }],
       steps: [{ instruction: language === 'ru' ? 'Добавьте шаги приготовления вручную' : 'Add cooking steps manually' }],
     });
     setIsParsing(false);

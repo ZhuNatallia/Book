@@ -1,7 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { ThemeProvider, useTheme } from './i18n/ThemeContext';
+import { AuthProvider, useAuth } from './i18n/AuthContext';
 import { Header, BottomNav } from './components/Header';
+import { Onboarding } from './components/Onboarding';
+import { AuthScreen } from './components/AuthScreen';
+import { supabase } from './lib/supabase';
 import { RecipeCard, CategoryFilter } from './components/RecipeCard';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { RecipeDetail } from './components/RecipeDetail';
@@ -16,6 +20,25 @@ type AppView = 'recipes' | 'shopping' | 'utilities';
 function AppContent() {
 	const { t } = useLanguage();
 	const { theme } = useTheme();
+	const { session, loading: authLoading } = useAuth();
+	const [showOnboarding, setShowOnboarding] = useState(false);
+
+	useEffect(() => {
+		const seen = localStorage.getItem('smartrecipe-onboarding-seen');
+		if (!seen) {
+			setShowOnboarding(true);
+		}
+	}, []);
+
+	const completeOnboarding = () => {
+		localStorage.setItem('smartrecipe-onboarding-seen', 'true');
+		setShowOnboarding(false);
+	};
+
+	const handleSignOut = async () => {
+		await supabase.auth.signOut();
+	};
+
 	const {
 		recipes,
 		shoppingList,
@@ -59,6 +82,24 @@ function AppContent() {
 		return filtered;
 	}, [recipes, selectedCategory, searchQuery]);
 
+	if (authLoading) {
+		return (
+			<div className={`min-h-screen flex items-center justify-center ${theme.bgPrimary}`}>
+				<div className={`w-12 h-12 bg-gradient-to-br ${theme.headerLogoGradient} rounded-xl flex items-center justify-center shadow-lg animate-pulse`}>
+					<ChefHat className="w-7 h-7 text-white" />
+				</div>
+			</div>
+		);
+	}
+
+	if (showOnboarding) {
+		return <Onboarding onComplete={completeOnboarding} />;
+	}
+
+	if (!session) {
+		return <AuthScreen />;
+	}
+
 	const handleOpenRecipe = (recipe: FullRecipe) => {
 		setSelectedRecipe(recipe);
 	};
@@ -94,7 +135,7 @@ function AppContent() {
 
 	return (
 		<div className={`min-h-screen ${theme.bgPrimary}`}>
-			<Header onAddRecipe={openAddModal} />
+			<Header onAddRecipe={openAddModal} onSignOut={handleSignOut} />
 
 			<main className='max-w-7xl mx-auto pb-24 pt-4'>
 				{activeView === 'recipes' && (
@@ -201,9 +242,11 @@ function AppContent() {
 function App() {
 	return (
 		<ThemeProvider>
-			<LanguageProvider>
-				<AppContent />
-			</LanguageProvider>
+			<AuthProvider>
+				<LanguageProvider>
+					<AppContent />
+				</LanguageProvider>
+			</AuthProvider>
 		</ThemeProvider>
 	);
 }
