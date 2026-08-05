@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe, SpeechRecognition } from '../types';
-import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame } from 'lucide-react';
+import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame, CheckCircle } from 'lucide-react';
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;
@@ -30,6 +30,7 @@ export function RecipeDetail({
 	const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(
 		new Set(),
 	);
+	const [addedToList, setAddedToList] = useState(false);
 	const formatUnit = (unit: string) => {
 		if (!unit) return '';
 		const u = unit.toLowerCase().trim();
@@ -52,13 +53,6 @@ export function RecipeDetail({
 		return unit;
 	};
 	const r = recipe.recipe as any;
-
-	if (r && !r.caloriesPerServing && !r.calories) {
-		r.calories = 420;
-		r.protein = 25;
-		r.fat = 12;
-		r.carbs = 45;
-	}
 
 	const translation =
 		recipe.translations.find((tr) => tr.language === language) ||
@@ -104,6 +98,8 @@ export function RecipeDetail({
 			}
 		});
 		setCheckedIngredients(new Set());
+		setAddedToList(true);
+		setTimeout(() => setAddedToList(false), 2500);
 	};
 
 	return showHandsFree ? (
@@ -115,7 +111,7 @@ export function RecipeDetail({
 		/>
 	) : (
 		<div
-			className={`fixed inset-0 z-50 ${theme.bgCard} overflow-hidden flex flex-col`}
+			className={`fixed inset-0 z-[60] ${theme.bgCard} overflow-hidden flex flex-col`}
 		>
 			{/* Header Image */}
 			<div className='relative h-64 sm:h-80 flex-shrink-0'>
@@ -160,16 +156,16 @@ export function RecipeDetail({
 						</p>
 					</div>
 				)}
-				<div className='absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent' />
+				<div className='absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/30 to-transparent' />
 
-				<button
-					onClick={onClose}
-					className='absolute top-4 left-4 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white transition-colors'
-				>
+			<button
+				onClick={onClose}
+				className='z-10 absolute top-4 left-4 p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white transition-colors'
+			>
 					<X className='w-5 h-5 text-gray-700' />
 				</button>
 
-				<div className='absolute top-4 right-4 flex gap-2'>
+				<div className='z-10 absolute top-4 right-4 flex gap-2'>
 					<button
 						onClick={onEdit}
 						title={t('edit')}
@@ -187,12 +183,17 @@ export function RecipeDetail({
 					</button>
 				</div>
 
-				<div className='absolute bottom-0 left-0 right-0 p-4 sm:p-6'>
-					<h1 className='text-2xl sm:text-3xl font-bold text-white'>
+			</div>
+
+			{/* Content */}
+			<div className='flex-1 overflow-y-auto pb-4'>
+				{/* Title block — in document flow, below photo */}
+				<div className={`px-4 sm:px-6 pt-5 pb-4 border-b ${theme.border}`}>
+					<h1 className={`text-2xl sm:text-3xl font-bold ${theme.textPrimary} line-clamp-3`}>
 						{translation.title}
 					</h1>
 					{translation.description && (
-						<p className='text-white/80 text-sm sm:text-base mt-1'>
+						<p className={`${theme.textSecondary} text-sm sm:text-base mt-2 leading-relaxed whitespace-pre-line`}>
 							{translation.description}
 						</p>
 					)}
@@ -201,16 +202,13 @@ export function RecipeDetail({
 							href={recipe.recipe.sourceUrl}
 							target='_blank'
 							rel='noopener noreferrer'
-							className='inline-flex items-center gap-1 text-sm text-amber-300 hover:text-amber-200 mt-2'
+							className='inline-flex items-center gap-1 text-sm text-orange-500 hover:text-orange-400 mt-3'
 						>
 							{t('source')} <ExternalLink className='w-3.5 h-3.5' />
 						</a>
 					)}
 				</div>
-			</div>
 
-			{/* Content */}
-			<div className='flex-1 overflow-y-auto pb-4'>
 				{/* Serving Scaler & КБЖУ в один ряд */}
 				<div
 					className={`p-4 border-b ${theme.border} flex flex-wrap items-center justify-between gap-4 bg-black/5 dark:bg-white/5`}
@@ -363,6 +361,12 @@ export function RecipeDetail({
 									<ShoppingBag className='w-5 h-5' />
 									{t('addToShoppingList')} ({checkedIngredients.size})
 								</button>
+							)}
+							{addedToList && (
+								<div className='mt-2 flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm font-medium'>
+									<CheckCircle className='w-4 h-4' />
+									{language === 'ru' ? 'Добавлено в список покупок!' : 'Added to shopping list!'}
+								</div>
 							)}
 						</div>
 					)}

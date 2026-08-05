@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
-import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut } from 'lucide-react';
+import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Search } from 'lucide-react';
 
 interface HeaderProps {
   onAddRecipe: () => void;
@@ -219,8 +219,8 @@ export function BottomNav({
   activeView,
   onViewChange,
 }: {
-  activeView: 'recipes' | 'shopping' | 'utilities';
-  onViewChange: (view: 'recipes' | 'shopping' | 'utilities') => void;
+  activeView: 'recipes' | 'shopping' | 'converter' | 'fridge';
+  onViewChange: (view: 'recipes' | 'shopping' | 'converter' | 'fridge') => void;
 }) {
   const { t } = useLanguage();
   const { theme } = useTheme();
@@ -238,7 +238,8 @@ export function BottomNav({
       ),
       label: t('shoppingList'),
     },
-    { id: 'utilities' as const, icon: Settings, label: t('utilities') },
+    { id: 'converter' as const, icon: Scale, label: t('measurementConverter') },
+    { id: 'fridge' as const, icon: Search, label: t('fridgeSearch') },
   ];
 
   return (
