@@ -1,0 +1,144 @@
+import { useState, useMemo } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
+import { useTheme } from '../i18n/ThemeContext';
+import { FullRecipe } from '../types';
+import { Search } from 'lucide-react';
+
+interface FridgeSearchViewProps {
+  recipes: FullRecipe[];
+  onOpenRecipe: (recipe: FullRecipe) => void;
+}
+
+export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProps) {
+  const { language, t } = useLanguage();
+  const { theme } = useTheme();
+  const [fridgeQuery, setFridgeQuery] = useState('');
+
+  const fridgeResults = useMemo(() => {
+    if (!fridgeQuery.trim()) return [];
+    const ingredients = fridgeQuery
+      .split(',')
+      .map((i) => i.trim().toLowerCase())
+      .filter(Boolean);
+
+    const matches: {
+      recipe: FullRecipe;
+      matchCount: number;
+      matchedIngredients: string[];
+    }[] = [];
+
+    recipes.forEach((recipe) => {
+      const recipeIngredients = recipe.ingredients.map((ing) => {
+        const trans = ing.translations.find((tr) => tr.language === language);
+        return trans?.name.toLowerCase() || '';
+      });
+
+      const matchedIngredients: string[] = [];
+      let matchCount = 0;
+
+      ingredients.forEach((query) => {
+        recipeIngredients.forEach((name) => {
+          if (name.includes(query) || query.includes(name)) {
+            matchCount++;
+            matchedIngredients.push(name);
+          }
+        });
+      });
+
+      if (matchCount > 0) {
+        matches.push({
+          recipe,
+          matchCount,
+          matchedIngredients: [...new Set(matchedIngredients)],
+        });
+      }
+    });
+
+    return matches.sort((a, b) => b.matchCount - a.matchCount).slice(0, 5);
+  }, [fridgeQuery, recipes, language]);
+
+  return (
+    <div className="max-w-4xl mx-auto p-4">
+      <div className={`${theme.bgCard} rounded-2xl shadow-sm border ${theme.border} overflow-hidden`}>
+        <div className={`p-4 border-b ${theme.border} bg-gradient-to-r from-green-50 to-emerald-50`}>
+          <div className="flex items-center gap-2 mb-3">
+            <Search className="w-5 h-5 text-green-500" />
+            <h3 className={`font-bold ${theme.textPrimary}`}>{t('fridgeSearch')}</h3>
+          </div>
+          <textarea
+            value={fridgeQuery}
+            onChange={(e) => setFridgeQuery(e.target.value)}
+            placeholder={t('searchIngredients')}
+            rows={3}
+            className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm ${theme.inputPlaceholder}`}
+          />
+          <p className={`text-xs ${theme.textSecondary} mt-2`}>
+            {language === 'ru'
+              ? 'Введите ингредиенты через запятую, чтобы найти рецепты'
+              : language === 'de'
+                ? 'Geben Sie Zutaten durch Kommas getrennt ein, um Rezepte zu finden'
+                : 'Enter ingredients separated by commas to find matching recipes'}
+          </p>
+        </div>
+
+        {fridgeQuery && fridgeResults.length > 0 && (
+          <div className="p-4 space-y-3">
+            <p className={`text-sm ${theme.textSecondary}`}>
+              {language === 'ru'
+                ? `${fridgeResults.length} рецептов найдено`
+                : language === 'de'
+                  ? `${fridgeResults.length} Rezepte gefunden`
+                  : `${fridgeResults.length} recipes found`}
+            </p>
+            {fridgeResults.map((result) => {
+              const translation = result.recipe.translations.find(
+                (tr) => tr.language === language,
+              );
+              return (
+                <div
+                  key={result.recipe.recipe.id}
+                  onClick={() => onOpenRecipe(result.recipe)}
+                  className={`flex gap-3 p-3 ${theme.bgSecondary} rounded-xl hover:bg-gray-100 transition-colors cursor-pointer`}
+                >
+                  {result.recipe.recipe.imageUrl && (
+                    <img
+                      src={result.recipe.recipe.imageUrl}
+                      alt={translation?.title}
+                      className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                    />
+                  )}
+                  <div className="flex-1">
+                    <p className={`font-medium ${theme.textPrimary}`}>{translation?.title}</p>
+                    <p className="text-xs text-green-600 mt-1">
+                      {result.matchedIngredients.slice(0, 3).join(', ')}
+                      {result.matchedIngredients.length > 3 &&
+                        ` +${result.matchedIngredients.length - 3}`}
+                    </p>
+                  </div>
+                  <div className="px-2 py-1 rounded-lg text-xs font-medium h-fit bg-green-50 text-green-600">
+                    {result.matchCount}{' '}
+                    {language === 'ru'
+                      ? 'совпадений'
+                      : language === 'de'
+                        ? 'Treffer'
+                        : 'matches'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {fridgeQuery && fridgeResults.length === 0 && (
+          <div className={`p-8 text-center ${theme.textSecondary}`}>
+            {language === 'ru'
+              ? 'Нет рецептов с подходящими ингредиентами'
+              : language === 'de'
+                ? 'Keine Rezepte mit passenden Zutaten gefunden'
+                : 'No recipes match your ingredients'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

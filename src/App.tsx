@@ -10,12 +10,13 @@ import { RecipeCard, CategoryFilter } from './components/RecipeCard';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { RecipeDetail } from './components/RecipeDetail';
 import { ShoppingListView } from './components/ShoppingListView';
-import { UtilitiesView } from './components/UtilitiesView';
+import { MeasurementConverterView } from './components/MeasurementConverterView';
+import { FridgeSearchView } from './components/FridgeSearchView';
 import { useRecipeStore } from './hooks/useRecipeStore';
 import { FullRecipe } from './types';
 import { Search, ChefHat } from 'lucide-react';
 
-type AppView = 'recipes' | 'shopping' | 'utilities';
+type AppView = 'recipes' | 'shopping' | 'converter' | 'fridge';
 
 function AppContent() {
 	const { t } = useLanguage();
@@ -208,8 +209,12 @@ function AppContent() {
 					/>
 				)}
 
-				{activeView === 'utilities' && (
-					<UtilitiesView recipes={recipes} onOpenRecipe={handleOpenRecipe} />
+				{activeView === 'converter' && (
+					<MeasurementConverterView />
+				)}
+
+				{activeView === 'fridge' && (
+					<FridgeSearchView recipes={recipes} onOpenRecipe={handleOpenRecipe} />
 				)}
 			</main>
 

@@ -37,13 +37,6 @@ export function RecipeCard({
 		recipe.translations.find((tr) => tr.language === language) ||
 		recipe.translations.find((tr) => tr.language === 'ru')!;
 
-	if (r && !r.caloriesPerServing && !r.calories) {
-		r.calories = 420;
-		r.protein = 25;
-		r.fat = 12;
-		r.carbs = 45;
-	}
-
 	return (
 		<div
 			className={`group relative ${theme.bgCard} rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border ${theme.border}`}
