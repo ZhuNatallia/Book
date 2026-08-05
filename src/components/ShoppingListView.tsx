@@ -10,6 +10,7 @@ import {
 	MessageCircle,
 	Send,
 	Share2,
+	Check,
 } from 'lucide-react';
 
 interface ShoppingListViewProps {
@@ -198,7 +199,17 @@ export function ShoppingListView({
 							<Share2 size={18} />
 						</button>
 						<button
-							onClick={() => window.open('https://www.facebook.com/')}
+							onClick={async () => {
+								if (navigator.share) {
+									await navigator.share({
+										title:
+											language === 'ru'
+												? 'Список покупок от SmartRecipe Hub'
+												: 'Shopping list from SmartRecipe Hub',
+										text: generateExportText(),
+									});
+								}
+							}}
 							className='p-2 flex justify-center bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors'
 							title='Facebook'
 						>
@@ -218,11 +229,16 @@ export function ShoppingListView({
 						}`}
 					>
 						<div className='flex items-center gap-3 flex-1 min-w-0'>
-							<span
-								className={`text-sm font-bold w-6 shrink-0 ${item.checked ? 'text-green-500' : 'text-gray-400'}`}
+							<button
+								onClick={() => onToggle(item.id)}
+								className={`w-8 h-8 shrink-0 rounded-md border-2 flex items-center justify-center font-bold text-sm transition-all ${
+									item.checked
+										? 'bg-green-500 border-green-500 text-white'
+										: 'border-gray-300 text-gray-500 hover:border-green-400 hover:text-green-500'
+								}`}
 							>
-								{index + 1}.
-							</span>
+								{item.checked ? <Check className='w-4 h-4' /> : index + 1}
+							</button>
 							<span
 								className={`truncate ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
 							>
@@ -230,22 +246,6 @@ export function ShoppingListView({
 							</span>
 						</div>
 						<div className='flex items-center gap-1 shrink-0 ml-2'>
-							<button
-								onClick={() => onToggle(item.id)}
-								className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-									item.checked
-										? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-										: 'bg-green-100 text-green-700 hover:bg-green-200'
-								}`}
-							>
-								{item.checked
-									? language === 'ru'
-										? 'Готово'
-										: 'Done'
-									: language === 'ru'
-										? 'Готово?'
-										: 'Done?'}
-							</button>
 							<button
 								onClick={() => onRemove(item.id)}
 								className='p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors'

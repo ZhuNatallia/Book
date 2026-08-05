@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import {
@@ -7,7 +7,6 @@ import {
   groceryDiscounts,
   groceryStores,
 } from '../data/sampleRecipes';
-import { supabase } from '../lib/supabase';
 import { FullRecipe } from '../types';
 import {
   Search,
@@ -18,12 +17,12 @@ import {
   Plus,
   Trash2,
   X,
-  Loader2,
   RotateCcw,
 } from 'lucide-react';
 
 interface UtilitiesViewProps {
   recipes: FullRecipe[];
+  onOpenRecipe: (recipe: FullRecipe) => void;
 }
 
 interface ConversionRow {
@@ -35,15 +34,6 @@ interface ConversionRow {
   isCustom?: boolean;
 }
 
-interface CustomConversionDb {
-  id: string;
-  name_ru: string;
-  name_en: string;
-  name_de: string;
-  cup_weight: number;
-  tbsp_weight: number;
-  tsp_weight: number;
-}
 
 function formatAmount(value: number): string {
   if (value >= 10) return Math.round(value).toString();
@@ -51,19 +41,25 @@ function formatAmount(value: number): string {
   return value.toFixed(2).replace(/\.?0+$/, '');
 }
 
-export function UtilitiesView({ recipes }: UtilitiesViewProps) {
+export function UtilitiesView({ recipes, onOpenRecipe }: UtilitiesViewProps) {
   const { language, t } = useLanguage();
   const { theme } = useTheme();
   const [activeUtil, setActiveUtil] = useState<'converter' | 'fridge' | 'sales'>('converter');
   const [searchQuery, setSearchQuery] = useState('');
   const [fridgeQuery, setFridgeQuery] = useState('');
   const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
-  const [customRows, setCustomRows] = useState<ConversionRow[]>([]);
-  const [loadingCustom, setLoadingCustom] = useState(false);
+  const STORAGE_KEY = 'smartrecipe_custom_conversions';
+  const [customRows, setCustomRows] = useState<ConversionRow[]>(() => {
+    try {
+      const stored = localStorage.getItem('smartrecipe_custom_conversions');
+      return stored ? (JSON.parse(stored) as ConversionRow[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ name: '', cupWeight: '', tbspWeight: '', tspWeight: '' });
-  const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const utilsTabs = [
     { id: 'converter' as const, icon: Scale, label: t('measurementConverter') },
@@ -91,10 +87,13 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
     });
   }, []);
 
-  const allRows = useMemo(
-    () => [...baseRows, ...customRows],
-    [baseRows, customRows],
-  );
+  const allRows = useMemo(() => {
+    const lang = language as 'ru' | 'en' | 'de';
+    const locale = lang === 'ru' ? 'ru' : lang === 'de' ? 'de' : 'en';
+    return [...baseRows, ...customRows].sort((a, b) =>
+      a.name[lang].localeCompare(b.name[lang], locale),
+    );
+  }, [baseRows, customRows, language]);
 
   const filteredRows = useMemo(() => {
     if (!searchQuery.trim()) return allRows;
@@ -107,32 +106,8 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
     );
   }, [allRows, searchQuery]);
 
-  const loadCustomConversions = useCallback(async () => {
-    setLoadingCustom(true);
-    const { data, error } = await supabase
-      .from('custom_conversions')
-      .select('*')
-      .order('created_at', { ascending: true });
-    if (!error && data) {
-      setCustomRows(
-        (data as CustomConversionDb[]).map((row) => ({
-          id: row.id,
-          name: { ru: row.name_ru, en: row.name_en, de: row.name_de },
-          cupWeight: row.cup_weight,
-          tbspWeight: row.tbsp_weight,
-          tspWeight: row.tsp_weight,
-          isCustom: true,
-        })),
-      );
-    }
-    setLoadingCustom(false);
-  }, []);
 
-  useEffect(() => {
-    loadCustomConversions();
-  }, [loadCustomConversions]);
-
-  const handleAddCustom = async () => {
+  const handleAddCustom = () => {
     const name = addForm.name.trim();
     const cup = parseFloat(addForm.cupWeight);
     if (!name || !cup || cup <= 0) return;
@@ -144,49 +119,31 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
       ? parseFloat(addForm.tspWeight)
       : Math.round(tbsp / 3) || 1;
 
-    setSaving(true);
-    const { data, error } = await supabase
-      .from('custom_conversions')
-      .insert({
-        name_ru: name,
-        name_en: name,
-        name_de: name,
-        cup_weight: cup,
-        tbsp_weight: tbsp,
-        tsp_weight: tsp,
-      })
-      .select()
-      .single();
+    const newRow: ConversionRow = {
+      id: crypto.randomUUID(),
+      name: { ru: name, en: name, de: name },
+      cupWeight: cup,
+      tbspWeight: tbsp,
+      tspWeight: tsp,
+      isCustom: true,
+    };
 
-    if (!error && data) {
-      const row = data as CustomConversionDb;
-      setCustomRows((prev) => [
-        ...prev,
-        {
-          id: row.id,
-          name: { ru: row.name_ru, en: row.name_en, de: row.name_de },
-          cupWeight: row.cup_weight,
-          tbspWeight: row.tbsp_weight,
-          tspWeight: row.tsp_weight,
-          isCustom: true,
-        },
-      ]);
-    }
-    setSaving(false);
+    setCustomRows((prev) => {
+      const updated = [...prev, newRow];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
     setAddForm({ name: '', cupWeight: '', tbspWeight: '', tspWeight: '' });
     setShowAddForm(false);
+    setAddError(null);
   };
 
-  const handleDeleteCustom = async (id: string) => {
-    setDeletingId(id);
-    const { error } = await supabase
-      .from('custom_conversions')
-      .delete()
-      .eq('id', id);
-    if (!error) {
-      setCustomRows((prev) => prev.filter((r) => r.id !== id));
-    }
-    setDeletingId(null);
+  const handleDeleteCustom = (id: string) => {
+    setCustomRows((prev) => {
+      const updated = prev.filter((r) => r.id !== id);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const getConversionResult = (row: ConversionRow, inputGrams: string) => {
@@ -401,12 +358,15 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                     />
                   </div>
                 </div>
+                {addError && (
+                  <p className="text-xs text-red-500 text-center">{addError}</p>
+                )}
                 <button
                   onClick={handleAddCustom}
-                  disabled={saving || !addForm.name.trim() || !addForm.cupWeight}
+                  disabled={!addForm.name.trim() || !addForm.cupWeight}
                   className={`w-full py-2.5 ${theme.accentGradient} text-white rounded-xl font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2 transition-all`}
                 >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  <Plus className="w-4 h-4" />
                   {getLabel('add')}
                 </button>
               </div>
@@ -439,13 +399,6 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-zinc-700">
-                {loadingCustom && customRows.length === 0 && baseRows.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center">
-                      <Loader2 className={`w-6 h-6 animate-spin mx-auto ${theme.textAccent}`} />
-                    </td>
-                  </tr>
-                )}
                 {filteredRows.map((row) => {
                   const inputVal = customInputs[row.id] || '';
                   const result = getConversionResult(row, inputVal);
@@ -465,14 +418,9 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                           {row.isCustom && (
                             <button
                               onClick={() => handleDeleteCustom(row.id)}
-                              disabled={deletingId === row.id}
                               className="p-1 rounded text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-colors flex-shrink-0"
                             >
-                              {deletingId === row.id ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <Trash2 className="w-3 h-3" />
-                              )}
+                              <Trash2 className="w-3 h-3" />
                             </button>
                           )}
                         </div>
@@ -567,7 +515,7 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                     </tr>
                   );
                 })}
-                {filteredRows.length === 0 && !loadingCustom && (
+                {filteredRows.length === 0 && (
                   <tr>
                     <td colSpan={5} className={`py-8 text-center text-sm ${theme.textSecondary}`}>
                       {searchQuery
@@ -622,7 +570,8 @@ export function UtilitiesView({ recipes }: UtilitiesViewProps) {
                 return (
                   <div
                     key={result.recipe.recipe.id}
-                    className={`flex gap-3 p-3 ${theme.bgSecondary} rounded-xl hover:bg-gray-100 transition-colors`}
+                    onClick={() => onOpenRecipe(result.recipe)}
+                    className={`flex gap-3 p-3 ${theme.bgSecondary} rounded-xl hover:bg-gray-100 transition-colors cursor-pointer`}
                   >
                     {result.recipe.recipe.imageUrl && (
                       <img
