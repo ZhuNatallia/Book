@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
+import { RECIPE_CATEGORIES } from '../data/categories';
 import { supabase } from '../lib/supabase';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle } from 'lucide-react';
 
@@ -74,39 +75,114 @@ function detectCategory(text: string): string {
 
 function normalizeUnit(unit: string): string {
   const u = unit.toLowerCase().replace(/\./g, '');
-  if (['г', 'гр', 'грамм', 'g', 'gram'].includes(u)) return 'g';
+  // Longer prefixes first: "килограмм" must not be read as "кг", "миллилитр" not as "литр"
+  if (u.startsWith('килограмм')) return 'kg';
+  if (u.startsWith('миллилитр')) return 'ml';
+  if (u.startsWith('литр')) return 'l';
+  if (u.startsWith('грамм')) return 'g';
+  if (u.startsWith('штук')) return 'pcs';
+  if (['г', 'гр', 'g', 'gram'].includes(u)) return 'g';
   if (['мл', 'ml'].includes(u)) return 'ml';
   if (['кг', 'kg'].includes(u)) return 'kg';
   if (['л', 'l'].includes(u)) return 'l';
   if (['шт', 'pcs', 'piece'].includes(u)) return 'pcs';
-  if (['стакан', 'cup'].includes(u)) return 'cup';
+  if (u === 'cup' || u.startsWith('стакан')) return 'cup';
   if (['ст л', 'стл', 'tbsp', 'tablespoon'].includes(u)) return 'tbsp';
   if (['ч л', 'чл', 'tsp', 'teaspoon'].includes(u)) return 'tsp';
-  if (['по вкусу', 'pinch', 'щепотка'].includes(u)) return 'tsp';
+  if (['по вкусу', 'pinch'].includes(u) || u.startsWith('щепотк')) return 'tsp';
+  if (['oz', 'унц'].includes(u)) return 'oz';
+  if (['lb', 'фунт'].includes(u)) return 'lb';
   return 'g';
 }
 
-// Parses a JSON-LD recipeIngredient string like "2 cups flour" or "1/4 tsp salt"
-function parseIngredientString(raw: string): { quantity: number; unit: string; name: string } {
-  const m = raw.match(
-    /^(\d+[/.]?\d*)\s*(г|гр|g|ml|мл|kg|кг|l|л|шт|pcs|cup|tbsp|tsp|ст\.л\.?|ч\.л\.?|oz|lb|pinch)?\s*(.*)/i,
-  );
-  if (m) {
-    let qty = 1;
-    if (m[1].includes('/')) {
-      const p = m[1].split('/');
-      qty = parseFloat(p[0]) / parseFloat(p[1] || '1');
-    } else {
-      qty = parseFloat(m[1]) || 1;
-    }
-    return { quantity: qty, unit: m[2] ? normalizeUnit(m[2]) : 'pcs', name: m[3]?.trim() || raw };
+// Display-only labels. Canonical unit codes stay in state and in the database.
+const UNIT_LABEL_RU: Record<string, string> = {
+  g: 'г', kg: 'кг', ml: 'мл', l: 'л', pcs: 'шт',
+  tsp: 'ч.л.', tbsp: 'ст.л.', cup: 'ст.', oz: 'унц', lb: 'фунт',
+};
+
+// Unit alternatives shared by both patterns below. Longer alternatives come first so the
+// longest match wins, and full Russian words are included because sources write both
+// "500 г" and "500 грамм".
+const UNIT_ALT =
+  'килограмм[а-яё]*|миллилитр[а-яё]*|грамм[а-яё]*|литр[а-яё]*|штук[а-яё]*|стакан[а-яё]*|щепотк[а-яё]*|ст\\.?\\s*л\\.?|ч\\.?\\s*л\\.?|гр|кг|мл|шт|г|л|kg|ml|pcs|piece|cup|tbsp|tsp|oz|lb|pinch|g|l';
+
+const QTY = '\\d+(?:[/.,]\\d+)?';
+
+// "2 cups flour", "1/4 tsp salt", "400 г муки". The unit group requires a following space or
+// end-of-string, otherwise a bare "л"/"г" would swallow the first letter of a word
+// ("1 лавровый лист" -> unit "l", name "авровый лист").
+const LEADING_QTY_RE = new RegExp(`^(${QTY})\\s*(?:(${UNIT_ALT})(?=\\s|$))?\\s*(.*)$`, 'i');
+
+// "Куриные бедрышки 500 грамм", "Яйцо 1 шт." — quantity trails the name instead of leading it.
+const TRAILING_QTY_RE = new RegExp(`^(.*?)[\\s,\\-–—]+(${QTY})\\s*(${UNIT_ALT})\\.?\\s*$`, 'i');
+
+function toQuantity(raw: string): number {
+  if (raw.includes('/')) {
+    const p = raw.split('/');
+    return parseFloat(p[0]) / parseFloat(p[1] || '1');
   }
-  return { quantity: 1, unit: 'pcs', name: raw };
+  return parseFloat(raw.replace(',', '.')) || 1;
+}
+
+function parseIngredientString(raw: string): { quantity: number; unit: string; name: string } {
+  const text = raw.trim();
+
+  const lead = text.match(LEADING_QTY_RE);
+  if (lead) {
+    const name = (lead[3] ?? '').replace(/\s{2,}/g, ' ').trim();
+    return {
+      quantity: toQuantity(lead[1]),
+      unit: lead[2] ? normalizeUnit(lead[2]) : 'pcs',
+      name: name || text,
+    };
+  }
+
+  const trail = text.match(TRAILING_QTY_RE);
+  if (trail) {
+    const name = trail[1].replace(/\s{2,}/g, ' ').trim();
+    if (name) {
+      return { quantity: toQuantity(trail[2]), unit: normalizeUnit(trail[3]), name };
+    }
+  }
+
+  return { quantity: 1, unit: 'pcs', name: text };
+}
+
+// Explains why an import came back without ingredients or steps, so the user is never
+// left with an empty card and no reason for it.
+function importNoteMessage(note: string | undefined, language: string): string | null {
+  const ru = language === 'ru';
+  switch (note) {
+    case 'youtube_missing_api_key':
+      return ru
+        ? 'Описание YouTube недоступно: не настроен ключ YouTube API. Добавьте ингредиенты и шаги вручную.'
+        : 'YouTube description unavailable: the YouTube API key is not configured. Add ingredients and steps manually.';
+    case 'youtube_no_description':
+      return ru
+        ? 'В описании этого видео нет рецепта. Название и картинка подтянуты — добавьте ингредиенты и шаги вручную.'
+        : 'This video has no recipe in its description. Title and image loaded — add ingredients and steps manually.';
+    case 'youtube_unavailable':
+      return ru
+        ? 'Видео недоступно: оно удалено, приватное или ссылка неверная. Проверьте ссылку.'
+        : 'The video is unavailable: it was removed, is private, or the link is wrong. Check the link.';
+    case 'partial_social':
+      return ru
+        ? 'Текст рецепта не найден. Картинка подтянута — добавьте ингредиенты и шаги вручную.'
+        : 'Recipe text not found. Image loaded — add ingredients and steps manually.';
+    case 'social_truncated':
+      return ru
+        ? 'Соцсеть отдала только начало поста, а сервис чтения сейчас перегружен. Попробуйте импорт ещё раз через минуту — обычно со второго раза рецепт подтягивается целиком.'
+        : 'The network returned only the beginning of the post and the reader service is busy. Try importing again in a minute — a retry usually loads the full recipe.';
+    default:
+      return null;
+  }
 }
 
 export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
+  const unitLabel = (u: string) => (language === 'ru' ? UNIT_LABEL_RU[u] ?? u : u);
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [isParsing, setIsParsing] = useState(false);
   const [parseResult, setParseResult] = useState<ParsedRecipe | null>(null);
@@ -336,7 +412,9 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
         { id: `t-${Date.now()}-en`, recipeId, language: 'en' as const, title, description },
         { id: `t-${Date.now()}-de`, recipeId, language: 'de' as const, title, description },
       ],
-      ingredients: ingredients.map((ing, idx) => ({
+      // The form always keeps one blank ingredient row for typing into; persisting it would
+      // show up as a nameless "Unknown" line in the recipe card.
+      ingredients: ingredients.filter((ing) => ing.name.trim()).map((ing, idx) => ({
         id: editingRecipe?.ingredients[idx]?.id || `i-${Date.now()}-${idx}`,
         recipeId,
         quantity: parseFloat(ing.quantity) || 0,
@@ -347,7 +425,9 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
           { id: `it-${Date.now()}-${idx}-de`, ingredientId: `i-${Date.now()}-${idx}`, language: 'de' as const, name: ing.name },
         ],
       })),
-      steps: steps.map((step, idx) => ({
+      // The form always keeps one blank step row for typing into; persisting it would show
+      // up as an empty "Step 1" in the recipe card.
+      steps: steps.filter((step) => step.instruction.trim()).map((step, idx) => ({
         id: editingRecipe?.steps.find((s) => s.stepOrder === idx + 1)?.id || `s-${Date.now()}-${idx}`,
         recipeId,
         stepOrder: idx + 1,
@@ -470,7 +550,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('category')}</label>
                   <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
                     <option value="" disabled>{language === 'ru' ? '— Выберите категорию —' : '— Select category —'}</option>
-                    {['meat', 'poultry', 'fish', 'vegetables', 'pizza', 'pastry', 'dessert', 'soup', 'salad', 'healthy'].map(cat => <option key={cat} value={cat}>{tCategory(cat)}</option>)}
+                    {RECIPE_CATEGORIES.map(cat => <option key={cat} value={cat}>{tCategory(cat)}</option>)}
                   </select>
                 </div>
                 <div>
@@ -610,6 +690,11 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                       </div>
                     );
                   })}
+                  <p className={`text-xs text-center ${theme.textSecondary}`}>
+                    {language === 'ru'
+                      ? 'Это может занять до пары минут — не закрывайте окно.'
+                      : 'This can take up to a couple of minutes — please keep this window open.'}
+                  </p>
                 </div>
               )}
 
@@ -668,7 +753,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                           {parseResult.ingredients.map((ing, idx) => (
                             <li key={idx} className="text-sm text-gray-700 flex items-center gap-2">
                               <span className="w-1.5 h-1.5 bg-orange-400 rounded-full" />
-                              <span className={`font-semibold ${theme.textAccent}`}>{ing.quantity} {ing.unit}</span>
+                              <span className={`font-semibold ${theme.textAccent}`}>{ing.quantity} {unitLabel(ing.unit)}</span>
                               <span>{ing.name}</span>
                             </li>
                           ))}
@@ -689,13 +774,11 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                       </div>
                     )}
                   </div>
-                  {/* Partial social banner — shown when image/title found but no recipe text */}
-                  {parseResult.note === 'partial_social' && (
-                    <div className="flex items-center gap-2 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
-                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                      {language === 'ru'
-                        ? 'Текст рецепта не найден. Картинка подтянута — добавьте ингредиенты и шаги вручную.'
-                        : 'Recipe text not found. Image loaded — add ingredients and steps manually.'}
+                  {/* Import note — shown when image/title found but no recipe text */}
+                  {importNoteMessage(parseResult.note, language) && (
+                    <div className="flex items-start gap-2 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>{importNoteMessage(parseResult.note, language)}</span>
                     </div>
                   )}
                   <div className="mt-4">

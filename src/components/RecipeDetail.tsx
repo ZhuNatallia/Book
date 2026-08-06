@@ -4,6 +4,20 @@ import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe, SpeechRecognition } from '../types';
 import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame, CheckCircle } from 'lucide-react';
 
+// Recipes imported from a video or a social post often have no written steps. For those we
+// link back to the original instead of showing an empty step list.
+const VIDEO_SOURCES = [
+	{ match: /youtube\.com|youtu\.be/i, labelKey: 'watchOnYoutube' },
+	{ match: /instagram\.com/i,         labelKey: 'watchOnInstagram' },
+	{ match: /tiktok\.com/i,            labelKey: 'watchOnTiktok' },
+	{ match: /facebook\.com|fb\.watch/i, labelKey: 'watchOnFacebook' },
+] as const;
+
+function videoSourceLabel(url?: string) {
+	if (!url) return undefined;
+	return VIDEO_SOURCES.find((s) => s.match.test(url))?.labelKey;
+}
+
 interface RecipeDetailProps {
 	recipe: FullRecipe;
 	onClose: () => void;
@@ -78,6 +92,14 @@ export function RecipeDetail({
 		return trans?.instruction || step.translations[0]?.instruction || '';
 	};
 
+	// Blank steps can exist on recipes saved before empty rows were filtered out on save,
+	// so filter here too rather than migrating stored data.
+	const realSteps = sortedSteps.filter((step) => getStepInstruction(step).trim());
+	const realIngredients = recipe.ingredients.filter((ing) =>
+		ing.translations.some((t) => t.name.trim()),
+	);
+	const watchLabelKey = videoSourceLabel(recipe.recipe.sourceUrl);
+
 	const toggleIngredientCheck = (id: string) => {
 		const newSet = new Set(checkedIngredients);
 		if (newSet.has(id)) {
@@ -89,7 +111,7 @@ export function RecipeDetail({
 	};
 
 	const addCheckedToShoppingList = () => {
-		recipe.ingredients.forEach((ing) => {
+		realIngredients.forEach((ing) => {
 			if (checkedIngredients.has(ing.id)) {
 				const name = getIngredientName(ing);
 				const scaledQty =
@@ -104,7 +126,7 @@ export function RecipeDetail({
 
 	return showHandsFree ? (
 		<HandsFreeMode
-			steps={sortedSteps}
+			steps={realSteps}
 			language={language}
 			onClose={() => setShowHandsFree(false)}
 			recipeTitle={translation.title}
@@ -299,7 +321,7 @@ export function RecipeDetail({
 								: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
 						}`}
 					>
-						{t('ingredients')} ({recipe.ingredients.length})
+						{t('ingredients')} ({realIngredients.length})
 					</button>
 					<button
 						onClick={() => setActiveTab('steps')}
@@ -309,7 +331,7 @@ export function RecipeDetail({
 								: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
 						}`}
 					>
-						{t('steps')} ({sortedSteps.length})
+						{t('steps')} ({realSteps.length})
 					</button>
 				</div>
 
@@ -317,7 +339,7 @@ export function RecipeDetail({
 				<div className='p-4'>
 					{activeTab === 'ingredients' && (
 						<div className='space-y-3'>
-							{recipe.ingredients.map((ing) => {
+							{realIngredients.map((ing) => {
 								const name = getIngredientName(ing);
 								const scaledQty =
 									(ing.quantity / (recipe.recipe.servings || 4)) * servings;
@@ -373,7 +395,7 @@ export function RecipeDetail({
 
 					{activeTab === 'steps' && (
 						<div className='space-y-4'>
-							{sortedSteps.map((step, idx) => (
+							{realSteps.map((step, idx) => (
 								<div
 									key={step.id}
 									className={`flex gap-4 items-start p-4 ${theme.bgSecondary} rounded-xl`}
@@ -399,13 +421,27 @@ export function RecipeDetail({
 								</div>
 							))}
 
-							<button
-								onClick={() => setShowHandsFree(true)}
-								className={`w-full py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all mt-4`}
-							>
-								<Mic className='w-5 h-5' />
-								{t('startCooking')}
-							</button>
+							{realSteps.length > 0 ? (
+								<button
+									onClick={() => setShowHandsFree(true)}
+									className={`w-full py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all mt-4`}
+								>
+									<Mic className='w-5 h-5' />
+									{t('startCooking')}
+								</button>
+							) : (
+								watchLabelKey && (
+									<a
+										href={recipe.recipe.sourceUrl}
+										target='_blank'
+										rel='noopener noreferrer'
+										className={`w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all`}
+									>
+										<Play className='w-5 h-5' />
+										{t(watchLabelKey)}
+									</a>
+								)
+							)}
 						</div>
 					)}
 				</div>

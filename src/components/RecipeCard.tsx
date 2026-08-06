@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react';
 import { FullRecipe } from '../types';
+import { RECIPE_CATEGORIES } from '../data/categories';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import {
@@ -39,9 +41,9 @@ export function RecipeCard({
 
 	return (
 		<div
-			className={`group relative ${theme.bgCard} rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border ${theme.border}`}
+			className={`group relative flex flex-col h-full ${theme.bgCard} rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border ${theme.border}`}
 		>
-			<div className='relative aspect-[4/3] overflow-hidden'>
+			<div className='relative aspect-[4/3] shrink-0 overflow-hidden'>
 				{recipe.recipe.imageUrl ? (
 					<img
 						src={recipe.recipe.imageUrl}
@@ -159,19 +161,18 @@ export function RecipeCard({
 				</div>
 			</div>
 
-			<div className='p-4 flex flex-col flex-grow'>
+			<div className='p-4 flex flex-col flex-1'>
 				<h3
 					className={`font-bold text-lg ${theme.textPrimary} mb-1 line-clamp-1`}
 				>
 					{translation.title}
 				</h3>
-				{translation.description && (
-					<p
-						className={`text-sm ${theme.textSecondary} line-clamp-2 mb-3 flex-grow`}
-					>
-						{translation.description}
-					</p>
-				)}
+				{/* Always two lines tall, so cards in a row keep their buttons on one level */}
+				<p
+					className={`text-sm ${theme.textSecondary} line-clamp-2 min-h-[2.5rem] mb-3`}
+				>
+					{translation.description || '\u00A0'}
+				</p>
 
 				<div className='flex items-center justify-between mt-auto pt-2 border-t border-gray-50 dark:border-zinc-800/50'>
 					<div
@@ -220,18 +221,9 @@ export function CategoryFilter({
 	const { tCategory } = useLanguage();
 	const { theme } = useTheme();
 
-	const categories = [
+	const categories: { id: string; label: ReactNode }[] = [
 		{ id: 'all', label: <Home className='w-4 h-4' /> },
-		{ id: 'meat', label: tCategory('meat') },
-		{ id: 'fish', label: tCategory('fish') },
-		{ id: 'vegetables', label: tCategory('vegetables') },
-		{ id: 'pastry', label: tCategory('pastry') },
-		{ id: 'dessert', label: tCategory('dessert') },
-		{ id: 'soup', label: tCategory('soup') },
-		{ id: 'salad', label: tCategory('salad') },
-		{ id: 'healthy', label: tCategory('healthy') },
-		{ id: 'preserves', label: tCategory('preserves') },
-		{ id: 'other', label: tCategory('other') },
+		...RECIPE_CATEGORIES.map((id) => ({ id, label: tCategory(id) })),
 	];
 
 	return (
