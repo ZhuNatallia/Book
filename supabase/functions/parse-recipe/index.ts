@@ -108,14 +108,18 @@ function extractLdJsonBlocks(html: string): any[] {
   return blocks;
 }
 
-// Measurement units (RU + EN)
-const MEASURE = /\b\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|щепотк|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece)\b/i;
+// Measurement units (RU + EN). Uses negative lookbehind instead of \b so it matches after stripped emoji.
+const MEASURE = /(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|щепотк|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece)\b/i;
+
+// Matches leading emoji characters (used to strip social-media emoji bullets before line classification)
+const EMOJI_RE = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}]+\s*/u;
 
 // Cooking action verbs (RU + EN)
 const COOK_VERB = /\b(смешай|добавь|нарежь|взбей|выпекай|обжарь|разогрей|залей|посоли|посыпь|перемешай|вылей|соедини|раскатай|запекай|варить|тушить|кипятить|измельчи|натри|mix|add|bake|cook|stir|whisk|combine|heat|pour|chop|blend|fold|season|preheat)\b/i;
 
 // Parse plain-text description to extract ingredients and steps using heuristic line classification.
 // Works without explicit section headers — classifies each line by its content pattern.
+// Leading emoji are stripped before classification so that lines like "🍌 2 банана" are recognised.
 function parseDescriptionText(text: string): { ingredients: string[]; instructions: string[] } {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const ingredients: string[] = [];
@@ -123,48 +127,53 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
   let mode: 'none' | 'ing' | 'steps' = 'none';
 
   for (const line of lines) {
+    // Strip leading emoji to normalise patterns like "🍌 2 банана" or "🍽 Приготовление:"
+    const stripped = line.replace(EMOJI_RE, '');
+
     // Section headers → switch mode, don't include the header text itself
-    if (/^(ингредиент|состав|продукт|ingredient)/i.test(line) && line.length < 50) {
+    if (/^(ингредиент|состав|продукт|ingredient)/i.test(stripped) && stripped.length < 50) {
       mode = 'ing'; continue;
     }
-    if (/^(приготовлени|шаги|процесс|инструкц|способ|метод|steps?|directions?|method|how\s+to)/i.test(line) && line.length < 60) {
+    if (/^(приготовлени|шаги|процесс|инструкц|способ|метод|steps?|directions?|method|how\s+to)/i.test(stripped) && stripped.length < 60) {
       mode = 'steps'; continue;
     }
 
-    const isBullet    = /^[-•*✓▪▸→]\s/.test(line);
-    const isNumbered  = /^\d+[.)]\s/.test(line);
-    const hasMeasure  = MEASURE.test(line);
-    const hasCookVerb = COOK_VERB.test(line);
+    const isBullet    = /^[-•*✓▪▸→]\s/.test(stripped);
+    const isNumbered  = /^\d+[.)]\s/.test(stripped);
+    const hasMeasure  = MEASURE.test(stripped);
+    const hasCookVerb = COOK_VERB.test(stripped);
+    // A line that starts with a digit + unit (after emoji strip) counts as an ingredient bullet
+    const isEmojiBullet = stripped !== line; // leading emoji was present
 
     if (mode === 'ing') {
-      // Accept bullets, numbered lines, or lines that contain measurements
-      if (isBullet || isNumbered || hasMeasure) {
-        ingredients.push(line.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, ''));
+      // Accept bullets, numbered lines, emoji-prefixed lines, or lines with measurements
+      if (isBullet || isNumbered || hasMeasure || isEmojiBullet) {
+        ingredients.push(stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, ''));
         continue;
       }
       // Line looks like a step — switch modes
-      if (hasCookVerb || (isNumbered && line.length > 30)) {
+      if (hasCookVerb || (isNumbered && stripped.length > 30)) {
         mode = 'steps';
-        instructions.push(line.replace(/^\d+[.)]\s*/, ''));
+        instructions.push(stripped.replace(/^\d+[.)]\s*/, ''));
         continue;
       }
     }
 
     if (mode === 'steps') {
-      if (isBullet || isNumbered || hasCookVerb || line.length > 25) {
-        instructions.push(line.replace(/^\d+[.)]\s*/, '').replace(/^[-•*✓▪▸→]\s*/, ''));
+      if (isBullet || isNumbered || hasCookVerb || stripped.length > 25) {
+        instructions.push(stripped.replace(/^\d+[.)]\s*/, '').replace(/^[-•*✓▪▸→]\s*/, ''));
         continue;
       }
     }
 
     // No explicit mode yet — classify by content heuristic
     if (mode === 'none') {
-      if ((isBullet || hasMeasure) && !hasCookVerb) {
+      if ((isBullet || hasMeasure || isEmojiBullet) && !hasCookVerb) {
         mode = 'ing';
-        ingredients.push(line.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, ''));
-      } else if ((isNumbered && hasCookVerb) || (isNumbered && line.length > 40)) {
+        ingredients.push(stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, ''));
+      } else if ((isNumbered && hasCookVerb) || (isNumbered && stripped.length > 40)) {
         mode = 'steps';
-        instructions.push(line.replace(/^\d+[.)]\s*/, ''));
+        instructions.push(stripped.replace(/^\d+[.)]\s*/, ''));
       }
       // else: intro/description text — not captured into either array
     }
@@ -205,11 +214,20 @@ function extractIntro(text: string, maxSentences = 2): string {
     .trim();
 }
 
+// Detect when a sanitized title is still just an account bio rather than a recipe name.
+// Bios typically have separators (| • ·) but no digits and are short.
+function looksLikeBio(t: string): boolean {
+  return /[|•·]/.test(t) && !/\d/.test(t) && t.split(/\s+/).length < 8;
+}
+
 // Strip junk from any title: @handles, platform labels, engagement suffixes, extra whitespace.
 function sanitizeTitle(raw: string): string {
   return raw
     .split('\n')[0]                                                                      // first line only
+    .replace(/^[\d,.]+[KkMm]?\s*(views?|reactions?|likes?|comments?)\s*[·•|\-,]\s*/gi, '') // strip leading "6.7K views · 1.1K reactions | "
     .replace(/@\w[\w.]*\b/g, '')                                                         // remove @handles
+    .replace(/^.+?\s+on\s+(instagram|facebook|tiktok)\s*:\s*[«"'`]?/i, '')              // strip "AccountName on Instagram: «"
+    .replace(/\s*[•·]\s*(instagram|tiktok|facebook)\s.*/i, '')                          // strip "• Instagram photos and videos"
     .replace(/\s*[|\-–—]\s*(instagram|tiktok|facebook|youtube|vk|ok\.ru)\b.*/gi, '')    // strip "| Platform" suffixes
     .replace(/^(instagram\s*(reel|reels|video)?|tiktok\s*video?|facebook\s*(video|reel)?|youtube\s*video?)[:\s\-–—]*/gi, '') // strip platform prefixes
     .replace(/\s*[\d,.]+[KkMm]?\s*(views?|likes?|comments?)\s*$/gi, '')                 // strip trailing metrics
@@ -227,21 +245,29 @@ function extractNutrient(nutrition: Record<string, unknown> | undefined, key: st
   return m ? Math.round(Number(m[0])).toString() : undefined;
 }
 
-// Optional OpenAI structuring — returns null when key is absent or text too short.
-// Gracefully degrades: if called without OPENAI_API_KEY the function still works via regex.
+// Optional LLM structuring — supports Groq (free) or OpenAI.
+// Priority: GROQ_API_KEY (free) → OPENAI_API_KEY (paid). Returns null when no key is set.
 async function tryLlmStructure(
   rawText: string,
   targetLang: string,
 ): Promise<{ title?: string; description?: string; ingredients: string[]; instructions: string[] } | null> {
-  const key = Deno.env.get('OPENAI_API_KEY');
+  const groqKey = Deno.env.get('GROQ_API_KEY');
+  const openaiKey = Deno.env.get('OPENAI_API_KEY');
+  const key = groqKey ?? openaiKey;
   if (!key || rawText.length < 50) return null;
 
+  const isGroq = !!groqKey;
+  const apiUrl = isGroq
+    ? 'https://api.groq.com/openai/v1/chat/completions'
+    : 'https://api.openai.com/v1/chat/completions';
+  const model = isGroq ? 'llama-3.1-8b-instant' : 'gpt-4o-mini';
+
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(apiUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model,
         max_tokens: 1500,
         response_format: { type: 'json_object' },
         messages: [{
@@ -344,9 +370,18 @@ serve(async (req) => {
 
       const isPartial = !finalIngredients.length;
 
+      // Build final title — fall back to first line of caption when og:title is just an account bio
+      const rawTitle = (structured?.title && structured.title.trim()) ? structured.title : (mlTitle ?? '');
+      let finalTitle = sanitizeTitle(rawTitle);
+      if (!finalTitle || looksLikeBio(finalTitle)) {
+        const firstLine = cleanDesc.split('\n').find((l) => l.trim().length > 3) ?? '';
+        const candidate = sanitizeTitle(firstLine.split(/[.!?]/)[0]);
+        if (candidate.length > 2) finalTitle = candidate;
+      }
+
       return new Response(
         JSON.stringify({
-          title: sanitizeTitle((structured?.title && structured.title.trim()) ? structured.title : (mlTitle ?? '')),
+          title: finalTitle,
           description: structured?.description || extractIntro(cleanDesc),
           categoryHint: '',
           ingredients: finalIngredients,
