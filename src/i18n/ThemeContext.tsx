@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { Language } from './translations';
 
 export type ThemeId = 'light' | 'dark' | 'turquoise' | 'pumpkin' | 'lavender';
 
 export interface Theme {
   id: ThemeId;
-  name: { ru: string; en: string; de: string };
+  name: Record<Language, string>;
   bgPrimary: string;
   bgSecondary: string;
   bgCard: string;
@@ -50,7 +51,7 @@ export interface Theme {
 export const themes: Record<ThemeId, Theme> = {
   light: {
     id: 'light',
-    name: { ru: 'Светлая', en: 'Light', de: 'Hell' },
+    name: { ru: 'Светлая', en: 'Light', de: 'Hell', uk: 'Світла', pl: 'Jasny', it: 'Chiaro', es: 'Claro', fr: 'Clair' },
     bgPrimary: 'bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50',
     bgSecondary: 'bg-white',
     bgCard: 'bg-white',
@@ -94,7 +95,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   dark: {
     id: 'dark',
-    name: { ru: 'Темная', en: 'Dark', de: 'Dunkel' },
+    name: { ru: 'Темная', en: 'Dark', de: 'Dunkel', uk: 'Темна', pl: 'Ciemny', it: 'Scuro', es: 'Oscuro', fr: 'Sombre' },
     bgPrimary: 'bg-zinc-900',
     bgSecondary: 'bg-zinc-800',
     bgCard: 'bg-zinc-800',
@@ -138,7 +139,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   turquoise: {
     id: 'turquoise',
-    name: { ru: 'Нежная бирюза', en: 'Soft Turquoise', de: 'Sanftes Türkis' },
+    name: { ru: 'Нежная бирюза', en: 'Soft Turquoise', de: 'Sanftes Türkis', uk: 'Ніжна бірюза', pl: 'Delikatny turkus', it: 'Turchese tenue', es: 'Turquesa suave', fr: 'Turquoise doux' },
     bgPrimary: 'bg-gradient-to-br from-teal-50 via-cyan-50 to-emerald-50',
     bgSecondary: 'bg-white',
     bgCard: 'bg-white',
@@ -182,7 +183,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   pumpkin: {
     id: 'pumpkin',
-    name: { ru: 'Теплая тыква', en: 'Warm Pumpkin', de: 'Warmes Kürbis' },
+    name: { ru: 'Теплая тыква', en: 'Warm Pumpkin', de: 'Warmes Kürbis', uk: 'Тепла гарбузова', pl: 'Ciepła dynia', it: 'Zucca calda', es: 'Calabaza cálida', fr: 'Citrouille chaude' },
     bgPrimary: 'bg-orange-50',
     bgSecondary: 'bg-white',
     bgCard: 'bg-white',
@@ -226,7 +227,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   lavender: {
     id: 'lavender',
-    name: { ru: 'Лаванда', en: 'Lavender', de: 'Lavendel' },
+    name: { ru: 'Лаванда', en: 'Lavender', de: 'Lavendel', uk: 'Лаванда', pl: 'Lawenda', it: 'Lavanda', es: 'Lavanda', fr: 'Lavande' },
     bgPrimary: 'bg-gradient-to-br from-purple-50 via-violet-50 to-indigo-50',
     bgSecondary: 'bg-white',
     bgCard: 'bg-white',

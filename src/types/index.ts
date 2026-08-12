@@ -84,7 +84,7 @@ export interface FullRecipe {
 
 export type ViewMode = 'recipes' | 'shopping' | 'utilities' | 'add';
 
-export type Language = 'ru' | 'en' | 'de';
+export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr';
 
 export interface SpeechRecognitionResultList {
   readonly length: number;

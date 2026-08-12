@@ -592,6 +592,93 @@ function splitLongSteps(steps: string[]): string[] {
   return out;
 }
 
+// Recipe blogs built on generic WordPress themes — and the content farms that copy them —
+// carry no schema.org markup at all: the whole recipe sits as plain HTML in the article body.
+const ARTICLE_NOISE_RE =
+  /<(script|style|noscript|template|svg|nav|footer|aside|form|iframe)\b[^>]*>[\s\S]*?<\/\1>/gi;
+
+// Ordered by how tightly each container hugs the article text.
+const ARTICLE_CONTAINERS = [
+  /<div[^>]+class=["'][^"']*(?:entry-content|post-content|article-content|article-body|td-post-content|single-content)[^"']*["'][^>]*>([\s\S]*)/i,
+  /<article\b[^>]*>([\s\S]*?)<\/article>/i,
+  /<main\b[^>]*>([\s\S]*?)<\/main>/i,
+];
+
+// Where the recipe proper begins, in every language the app can be set to.
+const INGREDIENT_HEADER_RE =
+  /(ингредиент|інгредієнт|состав:|склад:|ingredient|ingrédient|ingrediente|zutaten|składnik)/i;
+
+// Sharing widgets and "you may also like" lists that follow the recipe. Only ever applied
+// after the ingredient header, because the same words also appear above the article.
+const ARTICLE_TAIL_RE =
+  /\n\s*(поділитися|поделиться|share on|share this|оцініть статтю|оцените статью|читайте так|схожі|похожие|related|коментар|комментар|попередній запис|previous article)/i;
+
+const ARTICLE_MAX_CHARS = 6000;
+
+function htmlToLines(fragment: string): string {
+  return decodeEntities(
+    fragment
+      .replace(ARTICLE_NOISE_RE, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<li\b[^>]*>/gi, '\n- ')
+      .replace(/<\/(p|div|li|h[1-6]|tr|section|blockquote)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' '),
+  )
+    .split('\n')
+    .map((l) => l.replace(/[ \t]{2,}/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function extractArticleText(html: string): string {
+  let body = html;
+  for (const re of ARTICLE_CONTAINERS) {
+    const m = html.match(re);
+    if (m?.[1] && m[1].length > 400) { body = m[1]; break; }
+  }
+
+  let text = cleanSocialText(htmlToLines(body));
+
+  const ingIdx = text.search(INGREDIENT_HEADER_RE);
+  if (ingIdx >= 0) {
+    const tail = text.slice(ingIdx).search(ARTICLE_TAIL_RE);
+    if (tail > 0) text = text.slice(0, ingIdx + tail);
+  }
+  if (text.length <= ARTICLE_MAX_CHARS) return text;
+
+  // Content farms pad the page with unrelated articles, so keep the window that holds the
+  // recipe instead of the first N characters.
+  const from = ingIdx > 0 ? Math.max(0, ingIdx - 500) : 0;
+  return text.slice(from, from + ARTICLE_MAX_CHARS);
+}
+
+// Build a schema.org-shaped node out of the article text so the generic path downstream
+// (nutrition, image, translation, cleanup) keeps working unchanged.
+async function recipeFromArticle(
+  html: string,
+  targetLang: string,
+): Promise<Record<string, unknown> | null> {
+  const text = extractArticleText(html);
+  if (text.length < 200) return null;
+
+  const structured = await tryLlmStructure(text, targetLang, ARTICLE_MAX_CHARS);
+  const regexResult = parseDescriptionText(text);
+
+  const ingredients = structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients;
+  const instructions = splitLongSteps(
+    structured?.instructions?.length ? structured.instructions : regexResult.instructions,
+  );
+  if (!ingredients.length && !instructions.length) return null;
+
+  return {
+    name: structured?.title ?? '',
+    description: structured?.description || extractIntro(text),
+    recipeIngredient: ingredients,
+    recipeInstructions: instructions,
+  };
+}
+
 // Trim a raw text block down to a short introductory description (2 sentences max, 300 chars max).
 // Prevents full recipe text blobs from being stored in the description field.
 function extractIntro(text: string, maxSentences = 2): string {
@@ -639,6 +726,22 @@ function extractNutrient(nutrition: Record<string, unknown> | undefined, key: st
   if (raw === undefined || raw === null) return undefined;
   const m = String(raw).replace(',', '.').match(/[\d.]+/);
   return m ? Math.round(Number(m[0])).toString() : undefined;
+}
+
+// Every language the app can be switched to, spelled out for the prompt.
+const LLM_LANG_NAMES: Record<string, string> = {
+  ru: 'Russian',
+  en: 'English',
+  de: 'German',
+  uk: 'Ukrainian',
+  pl: 'Polish',
+  it: 'Italian',
+  es: 'Spanish',
+  fr: 'French',
+};
+
+function llmLangName(lang: string): string {
+  return LLM_LANG_NAMES[lang] ?? 'English';
 }
 
 // llama-3.1-8b-instant is deprecated by Groq with a 2026-08-16 shutdown.
@@ -819,10 +922,11 @@ async function callLlm(body: Record<string, unknown>, label: string): Promise<an
 async function tryLlmStructure(
   rawText: string,
   targetLang: string,
+  maxChars = 3000,
 ): Promise<{ title?: string; description?: string; ingredients: string[]; instructions: string[] } | null> {
   if (rawText.length < 50) return null;
 
-  const text = rawText.slice(0, 3000);
+  const text = rawText.slice(0, maxChars);
   const out = await callLlm({
     // Extraction discards filler, so the result is smaller than the source
     max_tokens: budgetMaxTokens(text.length + 800, 3000),
@@ -832,7 +936,7 @@ async function tryLlmStructure(
       content: `You are a recipe extraction assistant.
 Extract ONLY recipe content from the text below. Ignore all social media metadata (likes, views, comments, shares, follower counts, platform names like "Instagram Reel", "TikTok video").
 
-Respond in ${targetLang === 'ru' ? 'Russian' : 'English'}. Translate if the source is in a different language.
+Respond in ${llmLangName(targetLang)}. Translate if the source is in a different language.
 
 Return ONLY valid JSON with these keys:
 - title: the dish name ONLY (e.g. "Шоколадное печенье"). Never include author handles (@username), account names, platform labels ("Instagram Reel"), or engagement numbers. If no clear dish name exists, return "".
@@ -981,6 +1085,61 @@ const myMemoryProvider: TranslateProvider = {
 
 const TRANSLATE_PROVIDERS = [googleProvider, myMemoryProvider];
 
+// The same free endpoint reports the language it detected in the third slot of its reply.
+// Detection has to run on the text because page metadata lies often enough to be harmful:
+// womanjurnal.ru declares lang="ro-RO" for articles written in Russian.
+async function detectTextLang(sample: string): Promise<string | undefined> {
+  const q = sample.replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (q.length < 20) return undefined;
+
+  const query = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: 'en', dt: 't', q });
+  try {
+    const res = await fetch(`${GOOGLE_TRANSLATE_ENDPOINT}?${query}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    if (!res.ok) {
+      await res.body?.cancel();
+      console.error('[translate] detect http', res.status);
+      return undefined;
+    }
+    const json = await res.json();
+    const detected = typeof json?.[2] === 'string' ? normalizeLang(json[2]) : undefined;
+    return detected && detected !== 'auto' ? detected : undefined;
+  } catch (err) {
+    console.error('[translate] detect threw', err);
+    return undefined;
+  }
+}
+
+// Which language to translate a recipe from, or null when it is already in the app language.
+// Ukrainian into Russian is the case the old script heuristic could never see: both are
+// Cyrillic, so comparing alphabets always concluded "same language".
+async function translateFrom(
+  sample: string,
+  metaLang: string | undefined,
+  targetLang: string,
+): Promise<string | null> {
+  const detected = await detectTextLang(sample);
+  if (detected) return detected === targetLang ? null : detected;
+
+  // Detection is rate-limited often enough that metadata still has to be usable, but only
+  // where it does not contradict the text: womanjurnal.ru declares Romanian on Cyrillic
+  // pages, and translating Russian "from Romanian" mangles it.
+  if (metaLang && !scriptsDisagree(sample, metaLang)) {
+    return metaLang === targetLang ? null : metaLang;
+  }
+  return needsTranslation(sample, targetLang) ? 'auto' : null;
+}
+
+const CYRILLIC_LANGS = new Set(['ru', 'uk', 'be', 'bg', 'sr', 'mk', 'kk']);
+
+function scriptsDisagree(sample: string, lang: string): boolean {
+  const cyrillic = (sample.match(/[\u0400-\u04FF]/g) ?? []).length;
+  const latin = (sample.match(/[A-Za-z]/g) ?? []).length;
+  if (cyrillic + latin < 20) return false;
+  return (cyrillic > latin) !== CYRILLIC_LANGS.has(lang);
+}
+
 // Translate one provider's share of the work, marking each string it managed to handle so a
 // later provider only retries what is still missing.
 async function runProvider(
@@ -1081,7 +1240,7 @@ async function tryLlmTranslate(
   payload: { title: string; description: string; ingredients: string[]; instructions: string[] },
   targetLang: string,
 ): Promise<typeof payload | null> {
-  const langName = targetLang === 'ru' ? 'Russian' : targetLang === 'de' ? 'German' : 'English';
+  const langName = llmLangName(targetLang);
   const payloadJson = JSON.stringify(payload);
 
   const out = await callLlm({
@@ -1260,8 +1419,13 @@ serve(async (req) => {
         ingredients: finalIngredients,
         instructions: finalInstructions,
       };
-      if (needsTranslation([socialOut.title, ...socialOut.ingredients.slice(0, 5)].join(' '), lang)) {
-        socialOut = (await translateRecipe(socialOut, 'auto', lang)) ?? socialOut;
+      const socialFrom = await translateFrom(
+        [socialOut.title, ...socialOut.ingredients.slice(0, 5)].join(' '),
+        undefined,
+        lang,
+      );
+      if (socialFrom) {
+        socialOut = (await translateRecipe(socialOut, socialFrom, lang)) ?? socialOut;
       }
 
       const out = cleanTexts(socialOut);
@@ -1386,8 +1550,13 @@ serve(async (req) => {
         ingredients: finalIngredients,
         instructions: finalInstructions,
       };
-      if (needsTranslation([ytOut.title, ...ytOut.ingredients.slice(0, 5)].join(' '), lang)) {
-        ytOut = (await translateRecipe(ytOut, sourceLang ?? 'auto', lang)) ?? ytOut;
+      const ytFrom = await translateFrom(
+        [ytOut.title, ...ytOut.ingredients.slice(0, 5)].join(' '),
+        sourceLang,
+        lang,
+      );
+      if (ytFrom) {
+        ytOut = (await translateRecipe(ytOut, ytFrom, lang)) ?? ytOut;
       }
 
       const out = cleanTexts(ytOut);
@@ -1449,28 +1618,32 @@ serve(async (req) => {
       if (found) { recipe = found; break; }
     }
 
+    // No Recipe JSON-LD: read the article body instead. Falling back to og tags alone left
+    // the card with a title and nothing else, and skipped translation entirely.
     if (!recipe) {
-      // No Recipe JSON-LD — return whatever OG tags exist
-      if (ogTitle || pageTitle) {
+      const article = await recipeFromArticle(html, lang);
+      if (article || ogTitle || pageTitle) {
+        recipe = {
+          name: article?.name || ogTitle || pageTitle || '',
+          description: article?.description || ogDesc || '',
+          recipeIngredient: article?.recipeIngredient ?? [],
+          recipeInstructions: article?.recipeInstructions ?? [],
+        };
+      } else {
         return new Response(
-          JSON.stringify({
-            ...cleanTexts({
-              title: ogTitle ?? pageTitle ?? '',
-              description: ogDesc ?? '',
-              ingredients: [],
-              instructions: [],
-            }),
-            categoryHint: '',
-            imageUrl: ogImage ?? twImage,
-            sourceLang,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          JSON.stringify({ error: 'No recipe data found on this page' }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
       }
-      return new Response(
-        JSON.stringify({ error: 'No recipe data found on this page' }),
-        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+    } else if (!Array.isArray(recipe.recipeIngredient) || !recipe.recipeIngredient.length) {
+      // A Recipe node with no ingredient list is a stub the theme emitted for SEO
+      const article = await recipeFromArticle(html, lang);
+      if (article) {
+        recipe.recipeIngredient = article.recipeIngredient;
+        if (!flattenInstructions(recipe.recipeInstructions).length) {
+          recipe.recipeInstructions = article.recipeInstructions;
+        }
+      }
     }
 
     if (!sourceLang && typeof recipe.inLanguage === 'string') {
@@ -1555,18 +1728,23 @@ serve(async (req) => {
     let outIngredients = ingredients;
     let outInstructions = instructions;
 
-    // Content decides, because many sites expose no language metadata at all;
-    // sourceLang is only a secondary signal for same-script pairs (German into English).
+    // Content decides, because page metadata is wrong often enough to send a Russian recipe
+    // off to be translated from Romanian; sourceLang is only the fallback signal.
     const langSample = [title, ...ingredients.slice(0, 5), instructions[0] ?? ''].join(' ');
-    const isForeign = needsTranslation(langSample, lang) || (!!sourceLang && sourceLang !== lang);
+    const from = await translateFrom(langSample, sourceLang, lang);
+    let translated = false;
+    // Report what the text turned out to be, not what the page claimed, so the client does
+    // not warn about a foreign language on a page that was never foreign.
+    sourceLang = from ? (from === 'auto' ? sourceLang : from) : lang;
 
-    if (isForeign) {
+    if (from) {
       const tr = await translateRecipe(
         { title, description: description ?? '', ingredients, instructions },
-        sourceLang ?? 'auto',
+        from,
         lang,
       );
       if (tr) {
+        translated = true;
         outTitle = tr.title || outTitle;
         outDesc = tr.description || outDesc;
         if (tr.ingredients.length) outIngredients = tr.ingredients;
@@ -1590,6 +1768,7 @@ serve(async (req) => {
         servings,
         imageUrl,
         sourceLang,
+        translated,
         llmError: llmDiag,
         translateError: translateDiag,
       }),

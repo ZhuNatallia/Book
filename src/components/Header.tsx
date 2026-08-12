@@ -33,7 +33,14 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
     { code: 'ru', flag: '🇷🇺', label: 'Русский' },
     { code: 'en', flag: '🇬🇧', label: 'English' },
     { code: 'de', flag: '🇩🇪', label: 'Deutsch' },
+    { code: 'uk', flag: '🇺🇦', label: 'Українська' },
+    { code: 'pl', flag: '🇵🇱', label: 'Polski' },
+    { code: 'it', flag: '🇮🇹', label: 'Italiano' },
+    { code: 'es', flag: '🇪🇸', label: 'Español' },
+    { code: 'fr', flag: '🇫🇷', label: 'Français' },
   ];
+
+  const currentLanguage = languages.find((l) => l.code === language) ?? languages[0];
 
   const themeOptions: { id: ThemeId; name: string; preview: string }[] = [
     { id: 'light', name: themes.light.name[language], preview: 'from-amber-400 to-rose-400' },
@@ -87,7 +94,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary}`}>
                         <p className={`text-sm font-semibold ${theme.textPrimary}`}>
-                          {language === 'ru' ? 'Настройки' : language === 'de' ? 'Einstellungen' : 'Settings'}
+                          {t('settingsTitle')}
                         </p>
                       </div>
                       <div className="p-1">
@@ -96,12 +103,8 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                           className={`w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} hover:bg-gray-50 transition-colors`}
                         >
                           <div className="flex items-center gap-3">
-                            <span className="text-lg">
-                              {language === 'ru' ? '🇷🇺' : language === 'de' ? '🇩🇪' : '🇬🇧'}
-                            </span>
-                            <span className="text-sm font-medium">
-                              {language === 'ru' ? 'Язык' : language === 'de' ? 'Sprache' : 'Language'}
-                            </span>
+                            <span className="text-lg">{currentLanguage.flag}</span>
+                            <span className="text-sm font-medium">{t('languageLabel')}</span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
@@ -111,9 +114,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                         >
                           <div className="flex items-center gap-3">
                             <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${themeOptions.find(t => t.id === themeId)?.preview || 'from-amber-400 to-rose-400'}`} />
-                            <span className="text-sm font-medium">
-                              {language === 'ru' ? 'Палитра' : language === 'de' ? 'Palette' : 'Theme'}
-                            </span>
+                            <span className="text-sm font-medium">{t('themeLabel')}</span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
@@ -122,9 +123,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-500 hover:bg-rose-50 transition-colors`}
                         >
                           <LogOut className="w-5 h-5" />
-                          <span className="text-sm font-medium">
-                            {language === 'ru' ? 'Выйти' : language === 'de' ? 'Abmelden' : 'Sign Out'}
-                          </span>
+                          <span className="text-sm font-medium">{t('authSignOut')}</span>
                         </button>
                       </div>
                     </>
@@ -137,7 +136,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-sm font-semibold ${theme.textPrimary}`}>
-                          {language === 'ru' ? 'Язык' : language === 'de' ? 'Sprache' : 'Language'}
+                          {t('languageLabel')}
                         </p>
                       </div>
                       <div className="p-1">
@@ -172,7 +171,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-sm font-semibold ${theme.textPrimary}`}>
-                          {language === 'ru' ? 'Палитра' : language === 'de' ? 'Palette' : 'Theme'}
+                          {t('themeLabel')}
                         </p>
                       </div>
                       <div className="p-2">

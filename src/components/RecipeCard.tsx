@@ -48,6 +48,7 @@ export function RecipeCard({
 					<img
 						src={recipe.recipe.imageUrl}
 						alt={translation.title}
+						referrerPolicy='no-referrer'
 						className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500'
 					/>
 				) : (
@@ -76,11 +77,7 @@ export function RecipeCard({
 						</div>
 
 						<p className={`mt-3 text-xs ${theme.textSecondary} font-medium`}>
-							{language === 'ru'
-								? 'Нет фото'
-								: language === 'de'
-									? 'Kein Foto'
-									: 'No photo'}
+							{t('noPhoto')}
 						</p>
 					</div>
 				)}
@@ -114,22 +111,22 @@ export function RecipeCard({
 						<Flame className='w-3 h-3' />
 						<span>
 							{r.calories || r.caloriesPerServing}{' '}
-							{language === 'ru' ? 'ккал' : 'kcal'}
+							{t('kcal')}
 						</span>
 					</div>
 					{r.protein && (
 						<span className='bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm border border-zinc-200/50'>
-							{language === 'ru' ? `Б: ${r.protein}г` : `E: ${r.protein}g`}
+							{`${t('proteinShort')}: ${r.protein}${t('g')}`}
 						</span>
 					)}
 					{r.fat && (
 						<span className='bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm border border-zinc-200/50'>
-							{language === 'ru' ? `Ж: ${r.fat}г` : `F: ${r.fat}g`}
+							{`${t('fatShort')}: ${r.fat}${t('g')}`}
 						</span>
 					)}
 					{r.carbs && (
 						<span className='bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm border border-zinc-200/50'>
-							{language === 'ru' ? `У: ${r.carbs}г` : `KH: ${r.carbs}g`}
+							{`${t('carbsShort')}: ${r.carbs}${t('g')}`}
 						</span>
 					)}
 				</div>

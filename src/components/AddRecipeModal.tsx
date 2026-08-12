@@ -26,6 +26,7 @@ interface ParsedRecipe {
   fat?: string;
   carbs?: string;
   sourceLang?: string;
+  translated?: boolean;
   note?: string;
 }
 
@@ -95,11 +96,9 @@ function normalizeUnit(unit: string): string {
   return 'g';
 }
 
-// Display-only labels. Canonical unit codes stay in state and in the database.
-const UNIT_LABEL_RU: Record<string, string> = {
-  g: 'г', kg: 'кг', ml: 'мл', l: 'л', pcs: 'шт',
-  tsp: 'ч.л.', tbsp: 'ст.л.', cup: 'ст.', oz: 'унц', lb: 'фунт',
-};
+// Canonical unit codes stay in state and in the database; these are the ones the
+// dictionary can render in the active language. Anything else is shown as-is.
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
 
 // Unit alternatives shared by both patterns below. Longer alternatives come first so the
 // longest match wins, and full Russian words are included because sources write both
@@ -151,38 +150,18 @@ function parseIngredientString(raw: string): { quantity: number; unit: string; n
 
 // Explains why an import came back without ingredients or steps, so the user is never
 // left with an empty card and no reason for it.
-function importNoteMessage(note: string | undefined, language: string): string | null {
-  const ru = language === 'ru';
-  switch (note) {
-    case 'youtube_missing_api_key':
-      return ru
-        ? 'Описание YouTube недоступно: не настроен ключ YouTube API. Добавьте ингредиенты и шаги вручную.'
-        : 'YouTube description unavailable: the YouTube API key is not configured. Add ingredients and steps manually.';
-    case 'youtube_no_description':
-      return ru
-        ? 'В описании этого видео нет рецепта. Название и картинка подтянуты — добавьте ингредиенты и шаги вручную.'
-        : 'This video has no recipe in its description. Title and image loaded — add ingredients and steps manually.';
-    case 'youtube_unavailable':
-      return ru
-        ? 'Видео недоступно: оно удалено, приватное или ссылка неверная. Проверьте ссылку.'
-        : 'The video is unavailable: it was removed, is private, or the link is wrong. Check the link.';
-    case 'partial_social':
-      return ru
-        ? 'Текст рецепта не найден. Картинка подтянута — добавьте ингредиенты и шаги вручную.'
-        : 'Recipe text not found. Image loaded — add ingredients and steps manually.';
-    case 'social_truncated':
-      return ru
-        ? 'Соцсеть отдала только начало поста, а сервис чтения сейчас перегружен. Попробуйте импорт ещё раз через минуту — обычно со второго раза рецепт подтягивается целиком.'
-        : 'The network returned only the beginning of the post and the reader service is busy. Try importing again in a minute — a retry usually loads the full recipe.';
-    default:
-      return null;
-  }
-}
+const IMPORT_NOTE_KEYS: Record<string, string> = {
+  youtube_missing_api_key: 'noteYoutubeKey',
+  youtube_no_description: 'noteYoutubeNoDesc',
+  youtube_unavailable: 'noteYoutubeUnavailable',
+  partial_social: 'notePartialSocial',
+  social_truncated: 'noteSocialTruncated',
+};
 
 export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
-  const unitLabel = (u: string) => (language === 'ru' ? UNIT_LABEL_RU[u] ?? u : u);
+  const unitLabel = (u: string) => (UNIT_KEYS.includes(u) ? t(u) : u);
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [isParsing, setIsParsing] = useState(false);
   const [parseResult, setParseResult] = useState<ParsedRecipe | null>(null);
@@ -329,7 +308,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
       const parsedIngredients = (data.ingredients ?? []).map(parseIngredientString);
 
       setParseResult({
-        title: data.title || (language === 'ru' ? 'Импортированный рецепт' : 'Imported recipe'),
+        title: data.title || t('importedRecipe'),
         description: data.description,
         category: detectCategory(`${data.categoryHint ?? ''} ${data.title ?? ''}`),
         servings: data.servings,
@@ -341,6 +320,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
         fat: data.fat,
         carbs: data.carbs,
         sourceLang: data.sourceLang,
+        translated: data.translated,
         note: data.note,
       });
       setImageUrl(data.imageUrl ?? undefined);
@@ -449,9 +429,9 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
   const inputCls = `w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder}`;
   const smallInputCls = `w-full px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`;
   const loadingSteps = [
-    { label: language === 'ru' ? 'Загрузка...' : 'Loading...', icon: Link2 },
-    { label: language === 'ru' ? 'Извлечение текста...' : 'Extracting text...', icon: Download },
-    { label: language === 'ru' ? 'AI разбор...' : 'AI parsing...', icon: Sparkles },
+    { label: t('loadingFetch'), icon: Link2 },
+    { label: t('loadingExtract'), icon: Download },
+    { label: t('loadingAi'), icon: Sparkles },
   ];
 
   return (
@@ -460,9 +440,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
         {/* Header */}
         <div className={`flex items-center justify-between p-4 border-b ${theme.border} ${theme.modalHeaderBg}`}>
           <h2 className={`text-xl font-bold ${theme.textPrimary}`}>
-            {isEditMode
-              ? (language === 'ru' ? 'Редактировать рецепт' : 'Edit Recipe')
-              : t('addRecipe')}
+            {isEditMode ? t('editRecipe') : t('addRecipe')}
           </h2>
           <button onClick={onClose} className={`p-2 hover:bg-gray-100 rounded-full transition-colors`}>
             <X className={`w-5 h-5 ${theme.textSecondary}`} />
@@ -498,11 +476,11 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
               {/* Image */}
               <div>
                 <label className={`block text-sm font-medium ${theme.label} mb-2`}>
-                  {language === 'ru' ? 'Фото блюда' : 'Dish Photo'}
+                  {t('dishPhoto')}
                 </label>
                 {imageUrl ? (
                   <div className="relative group">
-                    <img src={imageUrl} alt={title || 'Recipe'} className="w-full h-48 object-cover rounded-xl" />
+                    <img src={imageUrl} alt={title || 'Recipe'} referrerPolicy="no-referrer" className="w-full h-48 object-cover rounded-xl" />
                     <button onClick={() => setImageUrl(undefined)} className="absolute top-2 right-2 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-100">
                       <Trash2 className="w-4 h-4 text-rose-500" />
                     </button>
@@ -512,12 +490,12 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                     {isCompressing ? (
                       <div className="flex flex-col items-center">
                         <Loader2 className="w-8 h-8 animate-spin text-orange-500 mb-2" />
-                        <span className={`text-sm ${theme.textSecondary}`}>{language === 'ru' ? 'Сжатие...' : 'Compressing...'}</span>
+                        <span className={`text-sm ${theme.textSecondary}`}>{t('compressing')}</span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center text-gray-400">
                         <Camera className="w-10 h-10 mb-2 text-orange-400" />
-                        <span className="text-sm font-medium">{language === 'ru' ? 'Загрузить фото' : 'Upload photo'}</span>
+                        <span className="text-sm font-medium">{t('uploadPhoto')}</span>
                         <span className={`text-xs mt-1 ${theme.textSecondary}`}>PNG, JPG — макс. 1200px, JPEG 0.8</span>
                       </div>
                     )}
@@ -529,13 +507,13 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
               {/* Title */}
               <div>
                 <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('title')}</label>
-                <input type="text" value={title} onChange={(e) => setTitle(capitalizeFirst(e.target.value))} className={inputCls} placeholder={language === 'ru' ? 'Название рецепта...' : 'Recipe title...'} />
+                <input type="text" value={title} onChange={(e) => setTitle(capitalizeFirst(e.target.value))} className={inputCls} placeholder={t('titlePlaceholder')} />
               </div>
 
               {/* Description */}
               <div>
                 <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('description')}</label>
-                <textarea value={description} onChange={(e) => setDescription(capitalizeFirst(e.target.value))} rows={2} className={inputCls} placeholder={language === 'ru' ? 'Краткое описание...' : 'Short description...'} />
+                <textarea value={description} onChange={(e) => setDescription(capitalizeFirst(e.target.value))} rows={2} className={inputCls} placeholder={t('descriptionPlaceholder')} />
               </div>
 
               {/* Source URL */}
@@ -549,20 +527,20 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 <div>
                   <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('category')}</label>
                   <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
-                    <option value="" disabled>{language === 'ru' ? '— Выберите категорию —' : '— Select category —'}</option>
+                    <option value="" disabled>{t('selectCategory')}</option>
                     {RECIPE_CATEGORIES.map(cat => <option key={cat} value={cat}>{tCategory(cat)}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('servings')}</label>
-                  <input type="text" value={servings} onChange={(e) => setServings(e.target.value)} className={inputCls} placeholder={language === 'ru' ? 'Кол-во порций' : 'Servings'} />
+                  <input type="text" value={servings} onChange={(e) => setServings(e.target.value)} className={inputCls} placeholder={t('servingsPlaceholder')} />
                 </div>
               </div>
 
               {/* Nutrition (КБЖУ) */}
               <div>
                 <label className={`block text-sm font-medium ${theme.label} mb-2`}>
-                  {language === 'ru' ? 'Питательная ценность (на порцию)' : 'Nutrition (per serving)'}
+                  {t('nutritionPerServing')}
                 </label>
                 <div className="grid grid-cols-4 gap-2">
                   <div>
@@ -570,36 +548,36 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                       type="number" min="0" value={calories}
                       onChange={(e) => setCalories(e.target.value)}
                       className={smallInputCls}
-                      placeholder={language === 'ru' ? 'ккал' : 'kcal'}
+                      placeholder={t('kcal')}
                     />
-                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{language === 'ru' ? 'Калории' : 'Calories'}</p>
+                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{t('calories')}</p>
                   </div>
                   <div>
                     <input
                       type="number" min="0" value={protein}
                       onChange={(e) => setProtein(e.target.value)}
                       className={smallInputCls}
-                      placeholder="г"
+                      placeholder={t('g')}
                     />
-                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{language === 'ru' ? 'Белки' : 'Protein'}</p>
+                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{t('protein')}</p>
                   </div>
                   <div>
                     <input
                       type="number" min="0" value={fat}
                       onChange={(e) => setFat(e.target.value)}
                       className={smallInputCls}
-                      placeholder="г"
+                      placeholder={t('g')}
                     />
-                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{language === 'ru' ? 'Жиры' : 'Fat'}</p>
+                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{t('fat')}</p>
                   </div>
                   <div>
                     <input
                       type="number" min="0" value={carbs}
                       onChange={(e) => setCarbs(e.target.value)}
                       className={smallInputCls}
-                      placeholder="г"
+                      placeholder={t('g')}
                     />
-                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{language === 'ru' ? 'Углеводы' : 'Carbs'}</p>
+                    <p className={`text-xs mt-0.5 text-center ${theme.textSecondary}`}>{t('carbs')}</p>
                   </div>
                 </div>
               </div>
@@ -614,7 +592,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                       <select value={ing.unit} onChange={(e) => updateIngredient(idx, 'unit', e.target.value)} className={`w-20 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm`}>
                         <option value="g">{t('g')}</option><option value="kg">{t('kg')}</option><option value="ml">{t('ml')}</option><option value="l">{t('l')}</option><option value="pcs">{t('pcs')}</option><option value="tbsp">{t('tbsp')}</option><option value="tsp">{t('tsp')}</option><option value="cup">{t('cup')}</option>
                       </select>
-                      <input type="text" value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={language === 'ru' ? 'Ингредиент' : 'Ingredient'} />
+                      <input type="text" value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('ingredientPlaceholder')} />
                       {ingredients.length > 1 && (
                         <button type="button" onClick={() => removeIngredient(idx)} className="p-2 text-gray-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
                       )}
@@ -633,8 +611,8 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   {steps.map((step, idx) => (
                     <div key={idx} className="flex items-start gap-2">
                       <span className={`w-6 h-6 ${theme.tabActiveBg} ${theme.textAccent} rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 mt-1`}>{idx + 1}</span>
-                      <textarea value={step.instruction} onChange={(e) => updateStep(idx, 'instruction', capitalizeFirst(e.target.value))} rows={2} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={language === 'ru' ? 'Описание шага...' : 'Step instruction...'} />
-                      <input type="text" value={step.timerMinutes} onChange={(e) => updateStep(idx, 'timerMinutes', e.target.value)} className={`w-16 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder="мин" title={t('stepTimer')} />
+                      <textarea value={step.instruction} onChange={(e) => updateStep(idx, 'instruction', capitalizeFirst(e.target.value))} rows={2} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('stepPlaceholder')} />
+                      <input type="text" value={step.timerMinutes} onChange={(e) => updateStep(idx, 'timerMinutes', e.target.value)} className={`w-16 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('minutes')} title={t('stepTimer')} />
                       {steps.length > 1 && (
                         <button type="button" onClick={() => removeStep(idx)} className="p-2 text-gray-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
                       )}
@@ -653,17 +631,17 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 <div className="flex items-center gap-2 mb-3">
                   <Film className={`w-5 h-5 ${theme.textAccent}`} />
                   <h3 className={`font-semibold ${theme.textPrimary}`}>
-                    {language === 'ru' ? 'Импорт по ссылке' : 'Import by URL'}
+                    {t('importByUrl')}
                   </h3>
                 </div>
                 <input
                   type="url" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} disabled={isParsing}
                   className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl ${theme.inputPlaceholder} text-sm disabled:opacity-50`}
-                  placeholder={language === 'ru' ? 'Вставьте ссылку на рецепт...' : 'Paste recipe link here...'}
+                  placeholder={t('importUrlPlaceholder')}
                 />
                 <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing} className={`mt-3 w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all`}>
                   <Download className="w-5 h-5" />
-                  {language === 'ru' ? 'Импортировать' : 'Import'}
+                  {t('importAction')}
                 </button>
               </div>
 
@@ -672,9 +650,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 <div className="space-y-2">
                   {loadingPlatform && (
                     <p className={`text-sm text-center ${theme.textSecondary}`}>
-                      {language === 'ru'
-                        ? `Импортируем рецепт из ${loadingPlatform}…`
-                        : `Importing recipe from ${loadingPlatform}…`}
+                      {`${t('importingFrom')} ${loadingPlatform}…`}
                     </p>
                   )}
                   {loadingSteps.map((step, idx) => {
@@ -691,9 +667,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                     );
                   })}
                   <p className={`text-xs text-center ${theme.textSecondary}`}>
-                    {language === 'ru'
-                      ? 'Это может занять до пары минут — не закрывайте окно.'
-                      : 'This can take up to a couple of minutes — please keep this window open.'}
+                    {t('importTakesTime')}
                   </p>
                 </div>
               )}
@@ -704,25 +678,21 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="font-semibold text-red-700 text-sm">
-                      {language === 'ru' ? 'Не удалось импортировать' : 'Import failed'}
+                      {t('importFailed')}
                     </p>
                     <p className="text-red-600 text-sm mt-1">{parseError}</p>
                     <p className="text-red-500 text-xs mt-2">
-                      {language === 'ru'
-                        ? 'Скопируйте текст рецепта и добавьте вручную через форму.'
-                        : 'Copy the recipe text and add it manually using the form.'}
+                      {t('importFailedHint')}
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* Language notice */}
-              {parseResult?.sourceLang && parseResult.sourceLang !== language && (
+              {/* Language notice — only when the recipe could not be translated */}
+              {parseResult?.sourceLang && parseResult.sourceLang !== language && !parseResult.translated && (
                 <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-sm">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {language === 'ru'
-                    ? `Страница на языке «${parseResult.sourceLang}» — проверьте название и ингредиенты.`
-                    : `Page language is «${parseResult.sourceLang}» — please verify the fields.`}
+                  {t('foreignPageNotice')}
                 </div>
               )}
 
@@ -732,7 +702,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   <div className="flex items-center gap-2 mb-4">
                     <CheckCircle className="w-6 h-6 text-green-500" />
                     <span className="font-bold text-lg text-green-700">
-                      {language === 'ru' ? 'Рецепт распознан!' : 'Recipe parsed!'}
+                      {t('recipeParsed')}
                     </span>
                   </div>
                   <div className="bg-white rounded-lg p-4 space-y-3">
@@ -775,16 +745,16 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                     )}
                   </div>
                   {/* Import note — shown when image/title found but no recipe text */}
-                  {importNoteMessage(parseResult.note, language) && (
+                  {parseResult.note && IMPORT_NOTE_KEYS[parseResult.note] && (
                     <div className="flex items-start gap-2 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
                       <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      <span>{importNoteMessage(parseResult.note, language)}</span>
+                      <span>{t(IMPORT_NOTE_KEYS[parseResult.note])}</span>
                     </div>
                   )}
                   <div className="mt-4">
                     <button onClick={useParsedRecipe} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2">
                       <CheckCircle className="w-5 h-5" />
-                      {language === 'ru' ? 'Использовать результат' : 'Use result'}
+                      {t('useResult')}
                     </button>
                   </div>
                 </div>
@@ -800,7 +770,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
               {t('cancel')}
             </button>
             <button onClick={handleSave} disabled={!title.trim() || !category} className={`flex-1 py-2.5 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all`}>
-              {isEditMode ? (language === 'ru' ? 'Сохранить' : 'Save') : t('add')}
+              {isEditMode ? t('save') : t('add')}
             </button>
           </div>
         </div>

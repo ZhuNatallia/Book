@@ -73,22 +73,14 @@ export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProp
             className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm ${theme.inputPlaceholder}`}
           />
           <p className={`text-xs ${theme.textSecondary} mt-2`}>
-            {language === 'ru'
-              ? 'Введите ингредиенты через запятую, чтобы найти рецепты'
-              : language === 'de'
-                ? 'Geben Sie Zutaten durch Kommas getrennt ein, um Rezepte zu finden'
-                : 'Enter ingredients separated by commas to find matching recipes'}
+            {t('fridgeHint')}
           </p>
         </div>
 
         {fridgeQuery && fridgeResults.length > 0 && (
           <div className="p-4 space-y-3">
             <p className={`text-sm ${theme.textSecondary}`}>
-              {language === 'ru'
-                ? `${fridgeResults.length} рецептов найдено`
-                : language === 'de'
-                  ? `${fridgeResults.length} Rezepte gefunden`
-                  : `${fridgeResults.length} recipes found`}
+              {`${fridgeResults.length} ${t('recipesFound')}`}
             </p>
             {fridgeResults.map((result) => {
               const translation = result.recipe.translations.find(
@@ -104,6 +96,7 @@ export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProp
                     <img
                       src={result.recipe.recipe.imageUrl}
                       alt={translation?.title}
+                      referrerPolicy="no-referrer"
                       className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
                     />
                   )}
@@ -117,11 +110,7 @@ export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProp
                   </div>
                   <div className="px-2 py-1 rounded-lg text-xs font-medium h-fit bg-green-50 text-green-600">
                     {result.matchCount}{' '}
-                    {language === 'ru'
-                      ? 'совпадений'
-                      : language === 'de'
-                        ? 'Treffer'
-                        : 'matches'}
+                    {t('matches')}
                   </div>
                 </div>
               );
@@ -131,11 +120,7 @@ export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProp
 
         {fridgeQuery && fridgeResults.length === 0 && (
           <div className={`p-8 text-center ${theme.textSecondary}`}>
-            {language === 'ru'
-              ? 'Нет рецептов с подходящими ингредиентами'
-              : language === 'de'
-                ? 'Keine Rezepte mit passenden Zutaten gefunden'
-                : 'No recipes match your ingredients'}
+            {t('noMatchingRecipes')}
           </div>
         )}
       </div>

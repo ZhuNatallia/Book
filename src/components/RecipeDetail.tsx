@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
-import { FullRecipe, SpeechRecognition } from '../types';
-import { X, Minus, Plus, Mic, Play, Pause, SkipForward, SkipBack, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, Volume2, ChefHat, UtensilsCrossed, Flame, CheckCircle } from 'lucide-react';
+import { FullRecipe } from '../types';
+import { X, Minus, Plus, Play, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -12,6 +12,9 @@ const VIDEO_SOURCES = [
 	{ match: /tiktok\.com/i,            labelKey: 'watchOnTiktok' },
 	{ match: /facebook\.com|fb\.watch/i, labelKey: 'watchOnFacebook' },
 ] as const;
+
+// Units are stored in canonical form and rendered from the dictionary of the active language
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
 
 function videoSourceLabel(url?: string) {
 	if (!url) return undefined;
@@ -40,7 +43,6 @@ export function RecipeDetail({
 	const [activeTab, setActiveTab] = useState<'ingredients' | 'steps'>(
 		'ingredients',
 	);
-	const [showHandsFree, setShowHandsFree] = useState(false);
 	const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(
 		new Set(),
 	);
@@ -48,23 +50,7 @@ export function RecipeDetail({
 	const formatUnit = (unit: string) => {
 		if (!unit) return '';
 		const u = unit.toLowerCase().trim();
-		if (language === 'ru') {
-			if (u === 'g') return 'г';
-			if (u === 'kg') return 'кг';
-			if (u === 'ml') return 'мл';
-			if (u === 'l') return 'л';
-			if (u === 'pcs') return 'шт';
-			if (u === 'tsp') return 'ч.л.';
-			if (u === 'tbsp') return 'ст.л.';
-			if (u === 'cup') return 'ст.';
-		}
-		if (language === 'de') {
-			if (u === 'pcs') return 'Stk.';
-			if (u === 'tsp') return 'TL';
-			if (u === 'tbsp') return 'EL';
-			if (u === 'cup') return 'Becher';
-		}
-		return unit;
+		return UNIT_KEYS.includes(u) ? t(u) : unit;
 	};
 	const r = recipe.recipe as any;
 
@@ -124,14 +110,7 @@ export function RecipeDetail({
 		setTimeout(() => setAddedToList(false), 2500);
 	};
 
-	return showHandsFree ? (
-		<HandsFreeMode
-			steps={realSteps}
-			language={language}
-			onClose={() => setShowHandsFree(false)}
-			recipeTitle={translation.title}
-		/>
-	) : (
+	return (
 		<div
 			className={`fixed inset-0 z-[60] ${theme.bgCard} overflow-hidden flex flex-col`}
 		>
@@ -141,6 +120,9 @@ export function RecipeDetail({
 					<img
 						src={recipe.recipe.imageUrl}
 						alt={translation.title}
+						// Imported photos are hotlinked, and many recipe sites answer 403 to a
+						// request that carries our Referer
+						referrerPolicy='no-referrer'
 						className='w-full h-full object-cover'
 					/>
 				) : (
@@ -170,11 +152,7 @@ export function RecipeDetail({
 							)}
 						</div>
 						<p className={`mt-4 text-sm ${theme.textSecondary} font-medium`}>
-							{language === 'ru'
-								? 'Фото не добавлено'
-								: language === 'de'
-									? 'Kein Foto hinzugefügt'
-									: 'No photo added'}
+							{t('noPhotoAdded')}
 						</p>
 					</div>
 				)}
@@ -271,27 +249,21 @@ export function RecipeDetail({
 								{Math.round(
 									(r.caloriesPerServing || r.calories) * scaling,
 								)}{' '}
-								{language === 'ru' ? ' ккал' : ' kcal'}
+								{t('kcal')}
 							</span>
 							{r.protein && (
 								<span className='text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/20'>
-									{language === 'ru'
-										? `Б: ${Math.round(r.protein * scaling)}г`
-										: `E: ${Math.round(r.protein * scaling)}g`}
+									{`${t('proteinShort')}: ${Math.round(r.protein * scaling)}${t('g')}`}
 								</span>
 							)}
 							{r.fat && (
 								<span className='text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20'>
-									{language === 'ru'
-										? `Ж: ${Math.round(r.fat * scaling)}г`
-										: `F: ${Math.round(r.fat * scaling)}g`}
+									{`${t('fatShort')}: ${Math.round(r.fat * scaling)}${t('g')}`}
 								</span>
 							)}
 							{r.carbs && (
 								<span className='text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-1 rounded-lg border border-green-500/20'>
-									{language === 'ru'
-										? `У: ${Math.round(r.carbs * scaling)}г`
-										: `KH: ${Math.round(r.carbs * scaling)}g`}
+									{`${t('carbsShort')}: ${Math.round(r.carbs * scaling)}${t('g')}`}
 								</span>
 							)}
 						</div>
@@ -302,11 +274,7 @@ export function RecipeDetail({
 					<div className='px-4 pt-2'>
 						<p className={`text-xs ${theme.textAccent}`}>
 							{'x' + scaling.toFixed(2)}{' '}
-							{language === 'ru'
-								? 'от базового количества'
-								: language === 'de'
-									? 'von der Basis'
-									: 'from base'}
+							{t('fromBase')}
 						</p>
 					</div>
 				)}
@@ -387,7 +355,7 @@ export function RecipeDetail({
 							{addedToList && (
 								<div className='mt-2 flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm font-medium'>
 									<CheckCircle className='w-4 h-4' />
-									{language === 'ru' ? 'Добавлено в список покупок!' : 'Added to shopping list!'}
+									{t('addedToShoppingList')}
 								</div>
 							)}
 						</div>
@@ -421,309 +389,20 @@ export function RecipeDetail({
 								</div>
 							))}
 
-							{realSteps.length > 0 ? (
-								<button
-									onClick={() => setShowHandsFree(true)}
-									className={`w-full py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all mt-4`}
+							{realSteps.length === 0 && watchLabelKey && (
+								<a
+									href={recipe.recipe.sourceUrl}
+									target='_blank'
+									rel='noopener noreferrer'
+									className={`w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all`}
 								>
-									<Mic className='w-5 h-5' />
-									{t('startCooking')}
-								</button>
-							) : (
-								watchLabelKey && (
-									<a
-										href={recipe.recipe.sourceUrl}
-										target='_blank'
-										rel='noopener noreferrer'
-										className={`w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all`}
-									>
-										<Play className='w-5 h-5' />
-										{t(watchLabelKey)}
-									</a>
-								)
+									<Play className='w-5 h-5' />
+									{t(watchLabelKey)}
+								</a>
 							)}
 						</div>
 					)}
 				</div>
-			</div>
-		</div>
-	);
-}
-
-interface HandsFreeModeProps {
-	steps: FullRecipe['steps'];
-	language: string;
-	onClose: () => void;
-	recipeTitle: string;
-}
-
-function HandsFreeMode({
-	steps,
-	language,
-	onClose,
-	recipeTitle,
-}: HandsFreeModeProps) {
-	const { t } = useLanguage();
-	const { theme } = useTheme();
-	const [currentStep, setCurrentStep] = useState(0);
-	const [isListening, setIsListening] = useState(false);
-	const [spokenText, setSpokenText] = useState('');
-	const [timerSeconds, setTimerSeconds] = useState<number | null>(null);
-	const [timerActive, setTimerActive] = useState(false);
-	const recognitionRef = useRef<SpeechRecognition | null>(null);
-
-	const getStepInstruction = (step: (typeof steps)[0]) => {
-		const trans = step.translations.find((t) => t.language === language);
-		return trans?.instruction || step.translations[0]?.instruction || '';
-	};
-
-	const currentStepData = steps[currentStep];
-	const totalSteps = steps.length;
-
-	useEffect(() => {
-		if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-			const SpeechRecognition =
-				window.SpeechRecognition || window.webkitSpeechRecognition;
-			recognitionRef.current = new SpeechRecognition();
-			recognitionRef.current.continuous = true;
-			recognitionRef.current.interimResults = true;
-
-			recognitionRef.current.onresult = (event) => {
-				const last = event.results.length - 1;
-				const text = event.results[last][0].transcript.toLowerCase();
-				setSpokenText(text);
-
-				if (
-					text.includes('дальше') ||
-					text.includes('next') ||
-					text.includes('weiter')
-				) {
-					if (currentStep < totalSteps - 1) {
-						setCurrentStep((s) => s + 1);
-						speakInstruction(getStepInstruction(steps[currentStep + 1]));
-					}
-				}
-				if (
-					text.includes('назад') ||
-					text.includes('back') ||
-					text.includes('zurück')
-				) {
-					if (currentStep > 0) {
-						setCurrentStep((s) => s - 1);
-						speakInstruction(getStepInstruction(steps[currentStep - 1]));
-					}
-				}
-				if (
-					text.includes('повтори') ||
-					text.includes('repeat') ||
-					text.includes('wiederhole')
-				) {
-					speakInstruction(getStepInstruction(steps[currentStep]));
-				}
-			};
-
-			recognitionRef.current.onerror = () => setIsListening(false);
-		}
-
-		return () => {
-			recognitionRef.current?.stop();
-		};
-	}, [currentStep, totalSteps, language, steps]);
-
-	const speakInstruction = (text: string) => {
-		if ('speechSynthesis' in window) {
-			speechSynthesis.cancel();
-			const utterance = new SpeechSynthesisUtterance(text);
-			utterance.lang =
-				language === 'ru' ? 'ru-RU' : language === 'de' ? 'de-DE' : 'en-US';
-			utterance.rate = 0.9;
-			speechSynthesis.speak(utterance);
-		}
-	};
-
-	const speakInfo = (text: string) => {
-		if ('speechSynthesis' in window) {
-			const utterance = new SpeechSynthesisUtterance(text);
-			utterance.lang =
-				language === 'ru' ? 'ru-RU' : language === 'de' ? 'de-DE' : 'en-US';
-			speechSynthesis.speak(utterance);
-		}
-	};
-
-	const toggleListening = () => {
-		if (isListening) {
-			recognitionRef.current?.stop();
-			setIsListening(false);
-		} else {
-			recognitionRef.current?.start();
-			setIsListening(true);
-		}
-	};
-
-	const handleNext = () => {
-		if (currentStep < totalSteps - 1) {
-			setCurrentStep((s) => s + 1);
-			setTimerSeconds(null);
-			setTimerActive(false);
-		}
-	};
-
-	const handlePrev = () => {
-		if (currentStep > 0) {
-			setCurrentStep((s) => s - 1);
-			setTimerSeconds(null);
-			setTimerActive(false);
-		}
-	};
-
-	useEffect(() => {
-		if (timerActive && timerSeconds && timerSeconds > 0) {
-			const interval = setInterval(() => {
-				setTimerSeconds((s) => {
-					if (s && s > 1) return s - 1;
-					setTimerActive(false);
-					speakInfo(
-						language === 'ru'
-							? 'Таймер завершен!'
-							: language === 'de'
-								? 'Timer fertig!'
-								: 'Timer done!',
-					);
-					return 0;
-				});
-			}, 1000);
-			return () => clearInterval(interval);
-		}
-	}, [timerActive, timerSeconds, language]);
-
-	const startTimer = () => {
-		if (currentStepData?.timerMinutes) {
-			setTimerSeconds(currentStepData.timerMinutes * 60);
-			setTimerActive(true);
-		}
-	};
-
-	const formatTime = (seconds: number) => {
-		const mins = Math.floor(seconds / 60);
-		const secs = seconds % 60;
-		return `${mins}:${secs.toString().padStart(2, '0')}`;
-	};
-
-	return (
-		<div className='fixed inset-0 z-50 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col'>
-			<div className='p-4 flex items-center justify-between'>
-				<button
-					onClick={onClose}
-					className='px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-xl transition-colors'
-				>
-					{t('exitMode')}
-				</button>
-				<div className='text-center'>
-					<p className='text-gray-400 text-sm'>{recipeTitle}</p>
-					<p className='text-white font-bold'>
-						{t('cookingStep')} {currentStep + 1} {t('of')} {totalSteps}
-					</p>
-				</div>
-				<div className='w-20'>
-					{isListening && (
-						<div className='flex items-center gap-1 justify-end'>
-							<Volume2 className='w-5 h-5 text-green-500 animate-pulse' />
-							<span className='text-green-500 text-xs'>{t('listening')}</span>
-						</div>
-					)}
-				</div>
-			</div>
-
-			<div className='flex justify-center gap-2 px-4 py-2'>
-				{steps.map((_, idx) => (
-					<div
-						key={idx}
-						className={`h-1.5 rounded-full transition-all ${
-							idx === currentStep
-								? `w-8 ${theme.accentPrimary}`
-								: idx < currentStep
-									? 'w-3 bg-orange-500/50'
-									: 'w-3 bg-gray-600'
-						}`}
-					/>
-				))}
-			</div>
-
-			<div className='flex-1 flex flex-col items-center justify-center p-6'>
-				<div className='max-w-lg text-center'>
-					<div
-						className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${theme.accentGradient}`}
-					>
-						<span className='text-3xl font-bold text-white'>
-							{currentStep + 1}
-						</span>
-					</div>
-					<p className='text-2xl sm:text-3xl text-white font-medium leading-relaxed'>
-						{currentStepData ? getStepInstruction(currentStepData) : ''}
-					</p>
-
-					{currentStepData?.timerMinutes && !timerSeconds && (
-						<button
-							onClick={startTimer}
-							className='mt-6 px-6 py-3 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/50 text-orange-400 rounded-xl transition-colors flex items-center gap-2 mx-auto'
-						>
-							<Play className='w-5 h-5' />
-							{currentStepData.timerMinutes} {t('minutes')}
-						</button>
-					)}
-
-					{timerSeconds && (
-						<div className='mt-6'>
-							<p
-								className={`text-5xl font-mono font-bold ${timerActive ? 'text-orange-500' : 'text-gray-600'}`}
-							>
-								{formatTime(timerSeconds)}
-							</p>
-							<button
-								onClick={() => setTimerActive(!timerActive)}
-								className='mt-2 p-2 text-gray-400 hover:text-white'
-							>
-								{timerActive ? (
-									<Pause className='w-6 h-6' />
-								) : (
-									<Play className='w-6 h-6' />
-								)}
-							</button>
-						</div>
-					)}
-
-					<div className='mt-8 p-4 bg-gray-800/50 rounded-xl border border-gray-700'>
-						<p className='text-gray-400 text-sm'>{t('sayNext')}</p>
-						{spokenText && (
-							<p className='text-orange-400 text-sm mt-1'>
-								&quot;{spokenText}&quot;
-							</p>
-						)}
-					</div>
-				</div>
-			</div>
-
-			<div className='p-6 flex items-center justify-center gap-4'>
-				<button
-					onClick={handlePrev}
-					disabled={currentStep === 0}
-					className='p-4 bg-gray-700/50 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-full transition-colors'
-				>
-					<SkipBack className='w-6 h-6' />
-				</button>
-				<button
-					onClick={toggleListening}
-					className={`p-6 rounded-full transition-all ${isListening ? 'bg-green-500 shadow-[0_0_30px_rgba(34,197,94,0.5)]' : `${theme.accentGradient} ${theme.accentHover} shadow-lg`}`}
-				>
-					<Mic className='w-8 h-8 text-white' />
-				</button>
-				<button
-					onClick={handleNext}
-					disabled={currentStep === totalSteps - 1}
-					className='p-4 bg-gray-700/50 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-full transition-colors'
-				>
-					<SkipForward className='w-6 h-6' />
-				</button>
 			</div>
 		</div>
 	);

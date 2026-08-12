@@ -25,7 +25,7 @@ function formatAmount(value: number): string {
 const STORAGE_KEY = 'smartrecipe_custom_conversions';
 
 export function MeasurementConverterView() {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { theme } = useTheme();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -390,7 +390,7 @@ export function MeasurementConverterView() {
                                 [row.id]: '',
                               }))
                             }
-                            title={language === 'ru' ? 'Сбросить' : language === 'de' ? 'Zurücksetzen' : 'Reset'}
+                            title={t('reset')}
                             className="p-1 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-orange-50 transition-colors flex-shrink-0"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
@@ -404,9 +404,7 @@ export function MeasurementConverterView() {
               {filteredRows.length === 0 && (
                 <tr>
                   <td colSpan={5} className={`py-8 text-center text-sm ${theme.textSecondary}`}>
-                    {searchQuery
-                      ? language === 'ru' ? 'Продукт не найден' : language === 'de' ? 'Produkt nicht gefunden' : 'Product not found'
-                      : language === 'ru' ? 'Нет данных' : 'No data'}
+                    {searchQuery ? t('productNotFound') : t('noData')}
                   </td>
                 </tr>
               )}

@@ -13,6 +13,18 @@ import {
 	Check,
 } from 'lucide-react';
 
+// Web Speech API needs a BCP 47 tag, not the app's bare language code
+const SPEECH_LOCALES: Record<string, string> = {
+	ru: 'ru-RU',
+	en: 'en-US',
+	de: 'de-DE',
+	uk: 'uk-UA',
+	pl: 'pl-PL',
+	it: 'it-IT',
+	es: 'es-ES',
+	fr: 'fr-FR',
+};
+
 interface ShoppingListViewProps {
 	items: ShoppingItem[];
 	onToggle: (id: string) => void;
@@ -49,7 +61,7 @@ export function ShoppingListView({
 	onClear,
 	onAdd,
 }: ShoppingListViewProps) {
-	const { language } = useLanguage();
+	const { language, t } = useLanguage();
 	const { theme } = useTheme();
 	const [newItem, setNewItem] = useState('');
 	const [isRecording, setIsRecording] = useState(false);
@@ -61,16 +73,12 @@ export function ShoppingListView({
 			(window as any).webkitSpeechRecognition;
 
 		if (!SpeechRecognition) {
-			alert(
-				language === 'ru'
-					? 'Голосовой ввод не поддерживается вашим браузером'
-					: 'Voice input not supported in your browser',
-			);
+			alert(t('voiceUnsupported'));
 			return;
 		}
 
 		const recognition = new SpeechRecognition();
-		recognition.lang = language === 'ru' ? 'ru-RU' : 'en-US';
+		recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
 		recognition.interimResults = false;
 		recognition.maxAlternatives = 1;
 
@@ -93,8 +101,7 @@ export function ShoppingListView({
 	};
 
 	const generateExportText = () => {
-		const header =
-			language === 'ru' ? '🛒 Список покупок:' : '🛒 Shopping List:';
+		const header = `🛒 ${t('shoppingList')}:`;
 		const lines = items.map((item, i) => `${i + 1}. ${item.ingredientName}`);
 		return `${header}\n\n${lines.join('\n')}`;
 	};
@@ -114,9 +121,7 @@ export function ShoppingListView({
 							}
 						}}
 						className={`flex-1 p-2 rounded-lg border ${theme.inputBg} ${theme.textPrimary}`}
-						placeholder={
-							language === 'ru' ? 'Добавить продукт...' : 'Add item...'
-						}
+						placeholder={t('addItemPlaceholder')}
 					/>
 					<button
 						onClick={handleVoiceInput}
@@ -125,7 +130,7 @@ export function ShoppingListView({
 								? 'bg-red-500 text-white animate-pulse'
 								: 'bg-gray-200 hover:bg-gray-300'
 						}`}
-						title={language === 'ru' ? 'Голосовой ввод' : 'Voice input'}
+						title={t('voiceInput')}
 					>
 						<Mic className='w-5 h-5' />
 					</button>
@@ -155,13 +160,7 @@ export function ShoppingListView({
 						className='w-full py-2 bg-gray-100 rounded-lg flex items-center justify-center gap-2 text-sm hover:bg-gray-200 transition-colors'
 					>
 						<Copy className='w-4 h-4' />
-						{copied
-							? language === 'ru'
-								? 'Скопировано!'
-								: 'Copied!'
-							: language === 'ru'
-								? 'Копировать список'
-								: 'Copy list'}
+						{copied ? t('copied') : t('copyList')}
 					</button>
 
 					<div className='grid grid-cols-4 gap-2'>
@@ -202,10 +201,7 @@ export function ShoppingListView({
 							onClick={async () => {
 								if (navigator.share) {
 									await navigator.share({
-										title:
-											language === 'ru'
-												? 'Список покупок от SmartRecipe Hub'
-												: 'Shopping list from SmartRecipe Hub',
+										title: t('shareListTitle'),
 										text: generateExportText(),
 									});
 								}
@@ -260,11 +256,7 @@ export function ShoppingListView({
 			{items.length === 0 && (
 				<div className={`text-center py-12 ${theme.textSecondary}`}>
 					<p className='text-4xl mb-3'>🛒</p>
-					<p>
-						{language === 'ru'
-							? 'Список пуст. Добавьте продукты!'
-							: 'List is empty. Add some items!'}
-					</p>
+					<p>{t('listEmptyAddItems')}</p>
 				</div>
 			)}
 
@@ -273,7 +265,7 @@ export function ShoppingListView({
 					onClick={onClear}
 					className='w-full py-2 text-red-500 border border-red-200 rounded-xl text-sm hover:bg-red-50 transition-colors'
 				>
-					{language === 'ru' ? 'Очистить всё' : 'Clear all'}
+					{t('clearAll')}
 				</button>
 			)}
 		</div>
