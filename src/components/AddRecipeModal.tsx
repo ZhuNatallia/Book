@@ -291,11 +291,13 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
     setIsParsing(true);
     setImportingStep(1);
+    const progress = window.setInterval(() => {
+      setImportingStep((s) => (s < 3 ? s + 1 : s));
+    }, 8000);
     try {
       const { data, error } = await supabase.functions.invoke('parse-recipe', {
         body: { url, lang: language },
       });
-      setImportingStep(2);
       if (error || data?.error) throw new Error(error?.message ?? data?.error);
       setImportingStep(3);
 
@@ -328,8 +330,10 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
       setParseResult(null);
       setImageUrl(undefined);
       const msg = e instanceof Error ? e.message : String(e);
-      setParseError(msg);
+      const timedOut = /timeout|timed out|abort|504|546|failed to send|network error/i.test(msg);
+      setParseError(timedOut ? t('importTimedOut') : msg);
     } finally {
+      window.clearInterval(progress);
       setIsParsing(false);
       setImportingStep(0);
     }
@@ -364,7 +368,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
   const handleSave = () => {
     if (!title.trim() || !category) return;
-    const recipeId = editingRecipe?.recipe.id || `recipe-${Date.now()}`;
+    const recipeId = editingRecipe?.recipe.id || crypto.randomUUID();
     const now = new Date().toISOString();
     const servingsNum = parseFloat(servings) || 1;
 
@@ -376,14 +380,12 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
         imageUrl,
         sourceUrl: sourceUrl || undefined,
         servings: servingsNum,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...(calories ? { calories: Number(calories) } : {}) as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...(protein  ? { protein:  Number(protein)  } : {}) as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...(fat      ? { fat:      Number(fat)      } : {}) as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...(carbs    ? { carbs:    Number(carbs)    } : {}) as any,
+        calories: calories ? Number(calories) : undefined,
+        protein: protein ? Number(protein) : undefined,
+        fat: fat ? Number(fat) : undefined,
+        carbs: carbs ? Number(carbs) : undefined,
+        visibleToFriends: editingRecipe?.recipe.visibleToFriends ?? false,
+        userId: editingRecipe?.recipe.userId,
         createdAt: editingRecipe?.recipe.createdAt || now,
         updatedAt: now,
       },
@@ -426,8 +428,8 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
   if (!isOpen) return null;
 
-  const inputCls = `w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder}`;
-  const smallInputCls = `w-full px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`;
+  const inputCls = `w-full px-3 py-2 ${theme.input}`;
+  const smallInputCls = `w-full px-2 py-2 text-sm ${theme.input}`;
   const loadingSteps = [
     { label: t('loadingFetch'), icon: Link2 },
     { label: t('loadingExtract'), icon: Download },
@@ -436,7 +438,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className={`w-full max-w-2xl max-h-[90vh] ${theme.modalBg} rounded-2xl shadow-2xl border ${theme.modalBorder} overflow-hidden flex flex-col`}>
+      <div className={`w-full max-w-2xl max-h-[90vh] ${theme.card} overflow-hidden flex flex-col`}>
         {/* Header */}
         <div className={`flex items-center justify-between p-4 border-b ${theme.border} ${theme.modalHeaderBg}`}>
           <h2 className={`text-xl font-bold ${theme.textPrimary}`}>
@@ -459,7 +461,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 onClick={() => setActiveTab(key)}
                 className={`flex-1 py-2.5 flex items-center justify-center gap-2 font-semibold rounded-xl transition-all ${
                   activeTab === key
-                    ? `${theme.accentGradient} text-white shadow-md`
+                    ? theme.chipActive
                     : `${theme.textSecondary} bg-transparent`
                 }`}
               >
@@ -639,7 +641,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl ${theme.inputPlaceholder} text-sm disabled:opacity-50`}
                   placeholder={t('importUrlPlaceholder')}
                 />
-                <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing} className={`mt-3 w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all`}>
+                <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
                   <Download className="w-5 h-5" />
                   {t('importAction')}
                 </button>
@@ -769,7 +771,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
             <button onClick={onClose} className={`flex-1 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl font-medium transition-colors`}>
               {t('cancel')}
             </button>
-            <button onClick={handleSave} disabled={!title.trim() || !category} className={`flex-1 py-2.5 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all`}>
+            <button onClick={handleSave} disabled={!title.trim() || !category} className={`flex-1 py-2.5 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed`}>
               {isEditMode ? t('save') : t('add')}
             </button>
           </div>

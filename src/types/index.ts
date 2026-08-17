@@ -1,18 +1,36 @@
+export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr';
+
 export interface Recipe {
   id: string;
+  userId?: string;
   category: string;
   status: 'want_to_cook' | 'cooked_liked';
   imageUrl?: string;
   sourceUrl?: string;
   servings: number;
+  calories?: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  visibleToFriends: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FriendProfile {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  displayName: string | null;
+  username: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
 }
 
 export interface RecipeTranslation {
   id: string;
   recipeId: string;
-  language: 'ru' | 'en' | 'de';
+  language: Language;
   title: string;
   description?: string;
 }
@@ -29,7 +47,7 @@ export interface RecipeIngredient {
 export interface IngredientTranslation {
   id: string;
   ingredientId: string;
-  language: 'ru' | 'en' | 'de';
+  language: Language;
   name: string;
 }
 
@@ -44,7 +62,7 @@ export interface RecipeStep {
 export interface StepTranslation {
   id: string;
   stepId: string;
-  language: 'ru' | 'en' | 'de';
+  language: Language;
   instruction: string;
 }
 
@@ -83,8 +101,6 @@ export interface FullRecipe {
 }
 
 export type ViewMode = 'recipes' | 'shopping' | 'utilities' | 'add';
-
-export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr';
 
 export interface SpeechRecognitionResultList {
   readonly length: number;

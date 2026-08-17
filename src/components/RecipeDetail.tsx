@@ -27,6 +27,7 @@ interface RecipeDetailProps {
 	onEdit: () => void;
 	onDelete: () => void;
 	onAddToShoppingList: (name: string, qty: number, unit: string) => void;
+	readOnly?: boolean;
 }
 
 export function RecipeDetail({
@@ -35,6 +36,7 @@ export function RecipeDetail({
 	onEdit,
 	onDelete,
 	onAddToShoppingList,
+	readOnly = false,
 }: RecipeDetailProps) {
 	const { language, t } = useLanguage();
 	const { theme } = useTheme();
@@ -85,6 +87,7 @@ export function RecipeDetail({
 		ing.translations.some((t) => t.name.trim()),
 	);
 	const watchLabelKey = videoSourceLabel(recipe.recipe.sourceUrl);
+	const showWatchInsteadOfSteps = realSteps.length === 0 && !!watchLabelKey;
 
 	const toggleIngredientCheck = (id: string) => {
 		const newSet = new Set(checkedIngredients);
@@ -165,6 +168,7 @@ export function RecipeDetail({
 					<X className='w-5 h-5 text-gray-700' />
 				</button>
 
+				{!readOnly && (
 				<div className='z-10 absolute top-4 right-4 flex gap-2'>
 					<button
 						onClick={onEdit}
@@ -182,6 +186,7 @@ export function RecipeDetail({
 						<Trash2 className='w-5 h-5 text-rose-500' />
 					</button>
 				</div>
+				)}
 
 			</div>
 
@@ -280,32 +285,44 @@ export function RecipeDetail({
 				)}
 
 				{/* Tabs */}
-				<div className={`flex border-b ${theme.border} mt-2`}>
+				<div className={`flex items-stretch border-b ${theme.border} mt-2`}>
 					<button
 						onClick={() => setActiveTab('ingredients')}
 						className={`flex-1 py-3 font-medium text-sm transition-colors ${
-							activeTab === 'ingredients'
+							activeTab === 'ingredients' || showWatchInsteadOfSteps
 								? `${theme.tabActive} border-b-2 ${theme.tabActiveBorder} ${theme.tabActiveBg}`
 								: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
 						}`}
 					>
 						{t('ingredients')} ({realIngredients.length})
 					</button>
-					<button
-						onClick={() => setActiveTab('steps')}
-						className={`flex-1 py-3 font-medium text-sm transition-colors ${
-							activeTab === 'steps'
-								? `${theme.tabActive} border-b-2 ${theme.tabActiveBorder} ${theme.tabActiveBg}`
-								: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
-						}`}
-					>
-						{t('steps')} ({realSteps.length})
-					</button>
+					{showWatchInsteadOfSteps ? (
+						<a
+							href={recipe.recipe.sourceUrl}
+							target='_blank'
+							rel='noopener noreferrer'
+							className={`flex-1 m-1.5 py-2 px-2 ${theme.btnPrimary} font-medium flex items-center justify-center gap-1.5 text-center text-xs sm:text-sm leading-tight`}
+						>
+							<Play className='w-4 h-4 flex-shrink-0' />
+							{t(watchLabelKey)}
+						</a>
+					) : (
+						<button
+							onClick={() => setActiveTab('steps')}
+							className={`flex-1 py-3 font-medium text-sm transition-colors ${
+								activeTab === 'steps'
+									? `${theme.tabActive} border-b-2 ${theme.tabActiveBorder} ${theme.tabActiveBg}`
+									: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
+							}`}
+						>
+							{t('steps')} ({realSteps.length})
+						</button>
+					)}
 				</div>
 
 				{/* Tab Content */}
 				<div className='p-4'>
-					{activeTab === 'ingredients' && (
+					{(activeTab === 'ingredients' || showWatchInsteadOfSteps) && (
 						<div className='space-y-3'>
 							{realIngredients.map((ing) => {
 								const name = getIngredientName(ing);
@@ -346,7 +363,7 @@ export function RecipeDetail({
 							{checkedIngredients.size > 0 && (
 								<button
 									onClick={addCheckedToShoppingList}
-									className={`w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 mt-4`}
+									className={`w-full py-3 ${theme.btnPrimary} font-medium flex items-center justify-center gap-2 mt-4`}
 								>
 									<ShoppingBag className='w-5 h-5' />
 									{t('addToShoppingList')} ({checkedIngredients.size})
@@ -361,7 +378,7 @@ export function RecipeDetail({
 						</div>
 					)}
 
-					{activeTab === 'steps' && (
+					{activeTab === 'steps' && !showWatchInsteadOfSteps && (
 						<div className='space-y-4'>
 							{realSteps.map((step, idx) => (
 								<div
@@ -369,7 +386,7 @@ export function RecipeDetail({
 									className={`flex gap-4 items-start p-4 ${theme.bgSecondary} rounded-xl`}
 								>
 									<div
-										className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${theme.accentGradient}`}
+										className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${theme.btnPrimary}`}
 									>
 										{idx + 1}
 									</div>
@@ -388,18 +405,6 @@ export function RecipeDetail({
 									</div>
 								</div>
 							))}
-
-							{realSteps.length === 0 && watchLabelKey && (
-								<a
-									href={recipe.recipe.sourceUrl}
-									target='_blank'
-									rel='noopener noreferrer'
-									className={`w-full py-3 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-medium shadow-md flex items-center justify-center gap-2 transition-all`}
-								>
-									<Play className='w-5 h-5' />
-									{t(watchLabelKey)}
-								</a>
-							)}
 						</div>
 					)}
 				</div>

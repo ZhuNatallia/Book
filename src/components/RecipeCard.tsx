@@ -14,6 +14,8 @@ import {
 	Pencil,
 	UtensilsCrossed,
 	Home,
+	Eye,
+	EyeOff,
 } from 'lucide-react';
 
 interface RecipeCardProps {
@@ -22,6 +24,8 @@ interface RecipeCardProps {
 	onDelete: () => void;
 	onView: () => void;
 	onToggleStatus: () => void;
+	onToggleVisibility?: () => void;
+	isOwner?: boolean;
 }
 
 export function RecipeCard({
@@ -30,6 +34,8 @@ export function RecipeCard({
 	onDelete,
 	onView,
 	onToggleStatus,
+	onToggleVisibility,
+	isOwner = true,
 }: RecipeCardProps) {
 	const r = recipe.recipe as any;
 	const { language, t, tCategory } = useLanguage();
@@ -37,11 +43,18 @@ export function RecipeCard({
 
 	const translation =
 		recipe.translations.find((tr) => tr.language === language) ||
-		recipe.translations.find((tr) => tr.language === 'ru')!;
+		recipe.translations.find((tr) => tr.language === 'ru') ||
+		recipe.translations[0] || {
+			id: '',
+			recipeId: recipe.recipe.id,
+			language,
+			title: '',
+			description: undefined as string | undefined,
+		};
 
 	return (
 		<div
-			className={`group relative flex flex-col h-full ${theme.bgCard} rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border ${theme.border}`}
+			className={`group relative flex flex-col h-full ${theme.card} overflow-hidden`}
 		>
 			<div className='relative aspect-[4/3] shrink-0 overflow-hidden'>
 				{recipe.recipe.imageUrl ? (
@@ -82,29 +95,57 @@ export function RecipeCard({
 					</div>
 				)}
 
-				<button
-					onClick={(e) => {
-						e.stopPropagation();
-						onToggleStatus();
-					}}
-					className={`absolute top-3 left-3 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border transition-all duration-200 ${
-						recipe.recipe.status === 'cooked_liked'
-							? 'bg-green-500/80 text-white border-green-400 hover:bg-green-600'
-							: 'bg-amber-500/80 text-white border-amber-400 hover:bg-amber-600'
-					}`}
-				>
-					{recipe.recipe.status === 'cooked_liked' ? (
-						<span className='flex items-center gap-1'>
-							<Heart className='w-3 h-3 fill-current' />
-							{t('cookedLiked')}
-						</span>
-					) : (
-						<span className='flex items-center gap-1'>
-							<Clock className='w-3 h-3' />
-							{t('wantToCook')}
-						</span>
+				<div className='absolute top-3 left-3 flex items-center gap-2 z-10'>
+					{isOwner && (
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleStatus();
+							}}
+							className={`px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border transition-all duration-200 ${
+								recipe.recipe.status === 'cooked_liked'
+									? 'bg-green-500/80 text-white border-green-400 hover:bg-green-600'
+									: 'bg-amber-500/80 text-white border-amber-400 hover:bg-amber-600'
+							}`}
+						>
+							{recipe.recipe.status === 'cooked_liked' ? (
+								<span className='flex items-center gap-1'>
+									<Heart className='w-3 h-3 fill-current' />
+									{t('cookedLiked')}
+								</span>
+							) : (
+								<span className='flex items-center gap-1'>
+									<Clock className='w-3 h-3' />
+									{t('wantToCook')}
+								</span>
+							)}
+						</button>
 					)}
-				</button>
+					{isOwner && !recipe.recipe.id.startsWith('sample-') && (
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleVisibility?.();
+							}}
+							title={
+								recipe.recipe.visibleToFriends
+									? t('visibleToFriends')
+									: t('hiddenFromFriends')
+							}
+							className={`p-2 rounded-full backdrop-blur-md border shadow-sm transition-all duration-200 ${
+								recipe.recipe.visibleToFriends
+									? 'bg-white/90 text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+									: 'bg-white/90 text-gray-500 border-white/60 hover:bg-gray-100'
+							}`}
+						>
+							{recipe.recipe.visibleToFriends ? (
+								<Eye className='w-4 h-4' />
+							) : (
+								<EyeOff className='w-4 h-4' />
+							)}
+						</button>
+					)}
+				</div>
 
 				<div className='absolute bottom-3 left-3 flex items-center gap-1 text-[10px] font-bold text-zinc-800 flex-wrap z-10'>
 					<div className='flex items-center gap-0.5 bg-orange-500 text-white px-1.5 py-0.5 rounded-md shadow-sm'>
@@ -131,6 +172,7 @@ export function RecipeCard({
 					)}
 				</div>
 
+				{isOwner && (
 				<div className='absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10'>
 					<button
 						onClick={(e) => {
@@ -152,6 +194,7 @@ export function RecipeCard({
 						<Trash2 className='w-4 h-4 text-rose-500' />
 					</button>
 				</div>
+				)}
 
 				<div className='absolute bottom-3 right-3 px-2.5 py-1 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm rounded-full text-xs font-semibold text-zinc-700 dark:text-zinc-300 shadow-sm border border-zinc-200/50 dark:border-zinc-700/50 z-10'>
 					{tCategory(recipe.recipe.category)}
@@ -197,7 +240,7 @@ export function RecipeCard({
 
 				<button
 					onClick={onView}
-					className={`mt-4 w-full py-2.5 px-4 bg-gradient-to-r ${theme.catFilterActive} text-white font-semibold rounded-xl transition-all duration-300 shadow-sm hover:shadow-md hover:brightness-110 active:scale-[0.98] text-sm`}
+					className={`mt-4 w-full py-2.5 px-4 ${theme.btnPrimary} font-semibold text-sm`}
 				>
 					{t('viewRecipe')}
 				</button>
@@ -230,10 +273,8 @@ export function CategoryFilter({
 					<button
 						key={cat.id}
 						onClick={() => onSelectCategory(cat.id)}
-						className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 capitalize flex items-center justify-center ${
-							selectedCategory === cat.id
-								? `bg-gradient-to-r ${theme.catFilterActive} text-white shadow-md`
-								: theme.catFilterInactive
+						className={`px-4 py-2 text-sm font-medium whitespace-nowrap capitalize flex items-center justify-center ${
+							selectedCategory === cat.id ? theme.chipActive : theme.chip
 						}`}
 					>
 						{cat.label}

@@ -2,14 +2,15 @@ import { useState, useMemo } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 
 interface FridgeSearchViewProps {
   recipes: FullRecipe[];
   onOpenRecipe: (recipe: FullRecipe) => void;
+  onClose?: () => void;
 }
 
-export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProps) {
+export function FridgeSearchView({ recipes, onOpenRecipe, onClose }: FridgeSearchViewProps) {
   const { language, t } = useLanguage();
   const { theme } = useTheme();
   const [fridgeQuery, setFridgeQuery] = useState('');
@@ -59,11 +60,21 @@ export function FridgeSearchView({ recipes, onOpenRecipe }: FridgeSearchViewProp
 
   return (
     <div className="max-w-4xl mx-auto p-4">
-      <div className={`${theme.bgCard} rounded-2xl shadow-sm border ${theme.border} overflow-hidden`}>
-        <div className={`p-4 border-b ${theme.border} bg-gradient-to-r from-green-50 to-emerald-50`}>
-          <div className="flex items-center gap-2 mb-3">
-            <Search className="w-5 h-5 text-green-500" />
-            <h3 className={`font-bold ${theme.textPrimary}`}>{t('fridgeSearch')}</h3>
+      <div className={`${theme.card} overflow-hidden`}>
+        <div className={`p-4`}>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Search className="w-5 h-5 text-green-500" />
+              <h3 className={`font-bold ${theme.textPrimary}`}>{t('fridgeSearch')}</h3>
+            </div>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className={`p-1.5 rounded-full hover:bg-white/80 ${theme.textSecondary}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
           <textarea
             value={fridgeQuery}

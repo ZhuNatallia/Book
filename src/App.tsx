@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { ThemeProvider, useTheme } from './i18n/ThemeContext';
 import { AuthProvider, useAuth } from './i18n/AuthContext';
-import { Header, BottomNav } from './components/Header';
+import { Header, BottomNav, BottomNavView } from './components/Header';
 import { Onboarding } from './components/Onboarding';
 import { AuthScreen } from './components/AuthScreen';
 import { supabase } from './lib/supabase';
@@ -12,11 +12,12 @@ import { RecipeDetail } from './components/RecipeDetail';
 import { ShoppingListView } from './components/ShoppingListView';
 import { MeasurementConverterView } from './components/MeasurementConverterView';
 import { FridgeSearchView } from './components/FridgeSearchView';
+import { FriendsView } from './components/FriendsView';
 import { useRecipeStore } from './hooks/useRecipeStore';
 import { FullRecipe } from './types';
 import { Search, ChefHat } from 'lucide-react';
 
-type AppView = 'recipes' | 'shopping' | 'converter' | 'fridge';
+type AppView = BottomNavView;
 
 function AppContent() {
 	const { t } = useLanguage();
@@ -47,14 +48,16 @@ function AppContent() {
 		updateRecipe,
 		deleteRecipe,
 		toggleRecipeStatus,
+		toggleVisibility,
 		addToShoppingList,
 		toggleShoppingItem,
 		removeFromShoppingList,
 		clearShoppingList,
 		addShoppingItem,
-	} = useRecipeStore();
+	} = useRecipeStore(session?.user.id);
 
 	const [activeView, setActiveView] = useState<AppView>('recipes');
+	const [showFridge, setShowFridge] = useState(false);
 	const [selectedRecipe, setSelectedRecipe] = useState<FullRecipe | null>(null);
 	const [showAddModal, setShowAddModal] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -136,10 +139,24 @@ function AppContent() {
 
 	return (
 		<div className={`min-h-screen ${theme.bgPrimary}`}>
-			<Header onAddRecipe={openAddModal} onSignOut={handleSignOut} />
+			<Header
+				onAddRecipe={openAddModal}
+				onFridgeSearch={() => setShowFridge(true)}
+				onSignOut={handleSignOut}
+				userId={session.user.id}
+				email={session.user.email}
+			/>
 
 			<main className='max-w-7xl mx-auto pb-24 pt-4'>
-				{activeView === 'recipes' && (
+				{showFridge && (
+					<FridgeSearchView
+						recipes={recipes}
+						onOpenRecipe={handleOpenRecipe}
+						onClose={() => setShowFridge(false)}
+					/>
+				)}
+
+				{!showFridge && activeView === 'recipes' && (
 					<>
 						<div className='px-4 mb-4'>
 							<div className='relative'>
@@ -149,7 +166,7 @@ function AppContent() {
 									value={searchQuery}
 									onChange={(e) => setSearchQuery(e.target.value)}
 									placeholder={t('searchPlaceholder')}
-									className={`w-full pl-12 pr-4 py-3 ${theme.bgCard} rounded-xl border ${theme.border} focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-sm`}
+									className={`w-full pl-12 pr-4 py-3 ${theme.input}`}
 								/>
 							</div>
 						</div>
@@ -174,6 +191,7 @@ function AppContent() {
 										}}
 										onDelete={() => deleteRecipe(recipe.recipe.id)}
 										onToggleStatus={() => toggleRecipeStatus(recipe.recipe.id)}
+										onToggleVisibility={() => toggleVisibility(recipe.recipe.id)}
 									/>
 								))}
 							</div>
@@ -189,7 +207,7 @@ function AppContent() {
 								</p>
 								<button
 									onClick={openAddModal}
-									className={`mt-4 px-6 py-2 ${theme.accentGradient} ${theme.accentHover} text-white rounded-full font-medium shadow-md hover:shadow-lg transition-all`}
+									className={`mt-4 px-6 py-2 ${theme.btnPrimary} font-medium`}
 								>
 									{t('addRecipe')}
 								</button>
@@ -198,7 +216,7 @@ function AppContent() {
 					</>
 				)}
 
-				{activeView === 'shopping' && (
+				{!showFridge && activeView === 'shopping' && (
 					// В App.tsx, внутри блока activeView === 'shopping'
 					<ShoppingListView
 						items={shoppingList}
@@ -209,20 +227,33 @@ function AppContent() {
 					/>
 				)}
 
-				{activeView === 'converter' && (
+				{!showFridge && activeView === 'converter' && (
 					<MeasurementConverterView />
 				)}
 
-				{activeView === 'fridge' && (
-					<FridgeSearchView recipes={recipes} onOpenRecipe={handleOpenRecipe} />
+				{!showFridge && activeView === 'friends' && session && (
+					<FriendsView
+						currentUserId={session.user.id}
+						onOpenRecipe={handleOpenRecipe}
+					/>
 				)}
 			</main>
 
-			<BottomNav activeView={activeView} onViewChange={setActiveView} />
+			<BottomNav
+				activeView={activeView}
+				onViewChange={(view) => {
+					setShowFridge(false);
+					setActiveView(view);
+				}}
+			/>
 
 			{selectedRecipe && (
 				<RecipeDetail
 					recipe={selectedRecipe}
+					readOnly={
+						!!selectedRecipe.recipe.userId &&
+						selectedRecipe.recipe.userId !== session.user.id
+					}
 					onClose={handleCloseRecipe}
 					onEdit={handleEditRecipe}
 					onDelete={() => {

@@ -158,7 +158,7 @@ export function MeasurementConverterView() {
 
   return (
     <div className="max-w-4xl mx-auto p-4">
-      <div className={`${theme.bgCard} rounded-2xl shadow-sm border ${theme.border} overflow-hidden`}>
+      <div className={`${theme.card} overflow-hidden`}>
         {/* Header */}
         <div className={`p-4 border-b ${theme.border}`}>
           <div className="flex items-center justify-between mb-3">
@@ -168,10 +168,10 @@ export function MeasurementConverterView() {
             </div>
             <button
               onClick={() => setShowAddForm((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-all ${
                 showAddForm
-                  ? `${theme.bgSecondary} ${theme.textSecondary} border ${theme.border}`
-                  : `${theme.accentGradient} text-white shadow-sm`
+                  ? theme.btnSoft
+                  : theme.btnPrimary
               }`}
             >
               {showAddForm ? (
@@ -250,7 +250,7 @@ export function MeasurementConverterView() {
               <button
                 onClick={handleAddCustom}
                 disabled={!addForm.name.trim() || !addForm.cupWeight}
-                className={`w-full py-2.5 ${theme.accentGradient} text-white rounded-xl font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2 transition-all`}
+                className={`w-full py-2.5 ${theme.btnPrimary} font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2`}
               >
                 <Plus className="w-4 h-4" />
                 {getLabel('add')}

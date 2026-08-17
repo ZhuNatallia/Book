@@ -1,14 +1,52 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { FullRecipe, ShoppingItem, Language } from '../types';
 import { sampleRecipes } from '../data/sampleRecipes';
+import {
+  deleteRemoteRecipe,
+  fetchUserRecipes,
+  isSampleRecipeId,
+  isUuid,
+  persistFullRecipe,
+  updateRecipeFlags,
+} from '../lib/recipeDb';
 
-export function useRecipeStore() {
+export function useRecipeStore(userId?: string) {
 	const [recipes, setRecipes] = useState<FullRecipe[]>(sampleRecipes);
 	const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
 
+	useEffect(() => {
+		if (!userId) {
+			setRecipes(sampleRecipes);
+			return;
+		}
+		let cancelled = false;
+		(async () => {
+			try {
+				const remote = await fetchUserRecipes(userId);
+				if (!cancelled) {
+					setRecipes([...sampleRecipes, ...remote]);
+				}
+			} catch (err) {
+				console.error(err);
+				if (!cancelled) setRecipes(sampleRecipes);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [userId]);
+
 	const addRecipe = useCallback((recipe: FullRecipe) => {
 		setRecipes((prev) => [...prev, recipe]);
-	}, []);
+		if (!userId || isSampleRecipeId(recipe.recipe.id)) return;
+		void persistFullRecipe(userId, recipe)
+			.then((saved) => {
+				setRecipes((prev) =>
+					prev.map((r) => (r.recipe.id === recipe.recipe.id || r.recipe.id === saved.recipe.id ? saved : r)),
+				);
+			})
+			.catch((err) => console.error(err));
+	}, [userId]);
 
 	const updateRecipe = useCallback((updatedRecipe: FullRecipe) => {
 		setRecipes((prev) =>
@@ -16,30 +54,62 @@ export function useRecipeStore() {
 				r.recipe.id === updatedRecipe.recipe.id ? updatedRecipe : r,
 			),
 		);
-	}, []);
+		if (!userId || isSampleRecipeId(updatedRecipe.recipe.id)) return;
+		void persistFullRecipe(userId, updatedRecipe).catch((err) => console.error(err));
+	}, [userId]);
 
 	const deleteRecipe = useCallback((recipeId: string) => {
 		setRecipes((prev) => prev.filter((r) => r.recipe.id !== recipeId));
-	}, []);
+		if (!userId || isSampleRecipeId(recipeId) || !isUuid(recipeId)) return;
+		void deleteRemoteRecipe(recipeId).catch((err) => console.error(err));
+	}, [userId]);
 
 	const toggleRecipeStatus = useCallback((recipeId: string) => {
-		setRecipes((prev) =>
-			prev.map((r) =>
+		setRecipes((prev) => {
+			const next = prev.map((r) => {
+				if (r.recipe.id !== recipeId) return r;
+				const status: FullRecipe['recipe']['status'] =
+					r.recipe.status === 'want_to_cook' ? 'cooked_liked' : 'want_to_cook';
+				return {
+					...r,
+					recipe: {
+						...r.recipe,
+						status,
+					},
+				};
+			});
+			const updated = next.find((r) => r.recipe.id === recipeId);
+			if (updated && userId && isUuid(recipeId) && !isSampleRecipeId(recipeId)) {
+				void updateRecipeFlags(recipeId, { status: updated.recipe.status }).catch((err) =>
+					console.error(err),
+				);
+			}
+			return next;
+		});
+	}, [userId]);
+
+	const toggleVisibility = useCallback((recipeId: string) => {
+		setRecipes((prev) => {
+			const next = prev.map((r) =>
 				r.recipe.id === recipeId
 					? {
 							...r,
 							recipe: {
 								...r.recipe,
-								status:
-									r.recipe.status === 'want_to_cook'
-										? 'cooked_liked'
-										: 'want_to_cook',
+								visibleToFriends: !r.recipe.visibleToFriends,
 							},
 						}
 					: r,
-			),
-		);
-	}, []);
+			);
+			const updated = next.find((r) => r.recipe.id === recipeId);
+			if (updated && userId && isUuid(recipeId) && !isSampleRecipeId(recipeId)) {
+				void updateRecipeFlags(recipeId, {
+					visibleToFriends: updated.recipe.visibleToFriends,
+				}).catch((err) => console.error(err));
+			}
+			return next;
+		});
+	}, [userId]);
 
 	const addToShoppingList = useCallback(
 		(
@@ -95,13 +165,10 @@ export function useRecipeStore() {
 		setShoppingList([]);
 	}, []);
 
-	// В файле useRecipeStore.ts
-	// В файле useRecipeStore.ts
 	const addShoppingItem = useCallback((name: string) => {
 		setShoppingList((prev) => [
 			...prev,
 			{
-				// Используем crypto.randomUUID() для гарантированно уникальных ключей
 				id: crypto.randomUUID(),
 				ingredientName: name,
 				checked: false,
@@ -123,7 +190,6 @@ export function useRecipeStore() {
 					description: translation.description,
 				};
 			}
-			// fallback to russian
 			const fallback = recipe.translations.find((t) => t.language === 'ru');
 			return fallback
 				? { title: fallback.title, description: fallback.description }
@@ -167,6 +233,7 @@ export function useRecipeStore() {
 		updateRecipe,
 		deleteRecipe,
 		toggleRecipeStatus,
+		toggleVisibility,
 		addToShoppingList,
 		toggleShoppingItem,
 		removeFromShoppingList,
@@ -198,7 +265,6 @@ export function useVoiceSimulation() {
 			_onPrevious?: () => void,
 			_onQuery?: (query: string) => void,
 		) => {
-			// Simulate voice recognition with visual feedback
 			const phrases = [
 				'Дальше',
 				'Next',
@@ -223,7 +289,6 @@ export function useVoiceSimulation() {
 	);
 
 	const speak = useCallback((text: string) => {
-		// Simulate TTS - in real app would use Web Speech API
 		if ('speechSynthesis' in window) {
 			const utterance = new SpeechSynthesisUtterance(text);
 			utterance.rate = 0.9;

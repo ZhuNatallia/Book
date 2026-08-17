@@ -109,7 +109,7 @@ export function ShoppingListView({
 	return (
 		<div className='max-w-md mx-auto p-4 space-y-4'>
 			{/* Поле ввода */}
-			<div className={`${theme.bgCard} p-4 rounded-xl border ${theme.border}`}>
+			<div className={`${theme.card} p-4`}>
 				<div className='flex items-center gap-2'>
 					<input
 						value={newItem}
@@ -120,7 +120,7 @@ export function ShoppingListView({
 								setNewItem('');
 							}
 						}}
-						className={`flex-1 p-2 rounded-lg border ${theme.inputBg} ${theme.textPrimary}`}
+						className={`flex-1 p-2 ${theme.input}`}
 						placeholder={t('addItemPlaceholder')}
 					/>
 					<button
@@ -141,7 +141,7 @@ export function ShoppingListView({
 								setNewItem('');
 							}
 						}}
-						className={`p-2 rounded-lg ${theme.accentGradient}`}
+						className={`p-2 ${theme.iconBtn}`}
 					>
 						<Plus className='w-5 h-5' />
 					</button>
@@ -220,7 +220,7 @@ export function ShoppingListView({
 				{items.map((item, index) => (
 					<li
 						key={item.id}
-						className={`flex items-center justify-between px-4 py-3 ${theme.bgCard} border ${theme.border} rounded-xl shadow-sm transition-all ${
+						className={`flex items-center justify-between px-4 py-3 ${theme.card} transition-all ${
 							item.checked ? 'bg-green-50 border-green-200' : ''
 						}`}
 					>
