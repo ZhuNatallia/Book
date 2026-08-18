@@ -128,17 +128,106 @@ function needsTranslation(sample: string, targetLang: string): boolean {
   return targetLang === 'ru' ? cyrillicShare < 0.3 : cyrillicShare > 0.3;
 }
 
-// Fetch a page with browser-like headers
+// One source must not eat the Edge Function wall clock (~150s). Keep each fetch short so
+// Microlink, the page, Jina and the HTML proxy can all run in one request.
+const SOURCE_TIMEOUT_MS = 12000;
+
+function browserHeaders(): Record<string, string> {
+  return {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+  };
+}
+
 async function fetchPage(url: string): Promise<Response> {
   return fetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-    },
+    headers: browserHeaders(),
     redirect: 'follow',
+    signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
   });
+}
+
+function isFacebookUrl(u: string): boolean {
+  return /facebook\.com|fb\.watch/i.test(u);
+}
+
+function facebookCanonicalUrl(u: string): string {
+  try {
+    const parsed = new URL(u);
+    if (!/facebook\.com/i.test(parsed.hostname)) return u;
+    if (!/\/login/i.test(parsed.pathname)) return u;
+    const next = parsed.searchParams.get('next');
+    if (!next) return u;
+    const decoded = decodeURIComponent(next);
+    if (/^https?:\/\/([^/]+\.)?facebook\.com/i.test(decoded)) return decoded;
+    if (decoded.startsWith('/')) return `https://www.facebook.com${decoded}`;
+    return u;
+  } catch {
+    return u;
+  }
+}
+
+function toMbasicFacebookUrl(u: string): string {
+  try {
+    const parsed = new URL(u);
+    parsed.hostname = 'mbasic.facebook.com';
+    return parsed.href;
+  } catch {
+    return u.replace(/^(https?:\/\/)(?:www\.|m\.)?facebook\.com/i, '$1mbasic.facebook.com');
+  }
+}
+
+async function resolveFacebookUrl(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      headers: browserHeaders(),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
+    });
+    await res.body?.cancel();
+    return facebookCanonicalUrl(res.url || url);
+  } catch {
+    return url;
+  }
+}
+
+async function fetchFacebookOembed(
+  url: string,
+): Promise<{ text?: string; author?: string } | undefined> {
+  const endpoints = [
+    `https://www.facebook.com/plugins/post/oembed.json?url=${encodeURIComponent(url)}`,
+    `https://www.facebook.com/plugins/video/oembed.json?url=${encodeURIComponent(url)}`,
+  ];
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+        signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        await res.body?.cancel();
+        continue;
+      }
+      const data = await res.json() as { html?: string; author_name?: string; title?: string };
+      const html = String(data.html ?? '');
+      const quoted = html.match(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/i)?.[1]
+        ?? html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1]
+        ?? '';
+      const text = stripHtml(quoted).replace(/\s+/g, ' ').trim();
+      if (text && !isLoginWallText(text) && !looksLikeFacebookChrome(text)) {
+        return { text, author: data.author_name ?? data.title };
+      }
+    } catch { /* try next endpoint */ }
+  }
+  return undefined;
+}
+
+function facebookReadError(lang: string): string {
+  return lang === 'ru'
+    ? 'Facebook не отдал текст поста — страница входа или закрытый пост. Скопируйте рецепт и добавьте вручную.'
+    : 'Facebook did not return the post text — login wall or a private post. Copy the recipe and add it manually.';
 }
 
 // Video id from any YouTube URL shape, ignoring tracking params such as &si= and &t=
@@ -170,6 +259,7 @@ async function fetchYouTubeViaApi(videoId: string): Promise<
     const res = await fetch(
       'https://www.googleapis.com/youtube/v3/videos' +
         `?part=snippet&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(key)}`,
+      { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) },
     );
     if (!res.ok) {
       console.error('[youtube] data api failed', res.status, (await res.text()).slice(0, 300));
@@ -221,6 +311,48 @@ function extractLdJsonBlocks(html: string): any[] {
 
 // Measurement units (RU + EN). Uses negative lookbehind instead of \b so it matches after stripped emoji.
 const MEASURE = /(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|щепотк|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece)\b/i;
+
+const FB_SLOGAN_RE =
+  /^(facebook|log\s*in(?:to\s+facebook)?|explore what you love|исследуйте (?:то, что|вещи, которые) вы любите|войти(?:\s+на\s+facebook)?|вхід)$/i;
+
+const FB_LOGIN_HINTS = [
+  /электронная почта или номер/i,
+  /email or (phone|mobile)/i,
+  /forgot (account|password)/i,
+  /create new account/i,
+  /log into facebook/i,
+  /войдите.{0,40}facebook/i,
+  /забыли аккаунт/i,
+  /создать новый аккаунт/i,
+  /explore what you love/i,
+  /исследуйте (?:то, что|вещи, которые) вы любите/i,
+];
+
+function looksLikeFacebookChrome(s?: string): boolean {
+  if (!s) return false;
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  return t.length < 80 && FB_SLOGAN_RE.test(t);
+}
+
+function isLoginWallLine(s: string): boolean {
+  return FB_LOGIN_HINTS.some((re) => re.test(s));
+}
+
+function isLoginWallText(s?: string): boolean {
+  if (!s) return false;
+  const hits = FB_LOGIN_HINTS.filter((re) => re.test(s)).length;
+  return hits >= 2 || (hits >= 1 && s.length < 1200);
+}
+
+function isJunkIngredient(s: string): boolean {
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (!t) return true;
+  const leftover = t
+    .replace(/^\d+[.,]?\d*\s*(шт|pcs|piece|г|гр|кг|мл|л)?\s*/i, '')
+    .replace(/[\s\[\]x*·•._-]/gi, '');
+  return leftover.length < 2;
+}
 
 // Every emoji codepoint, including skin-tone modifiers, flag pairs, keycap combining marks,
 // zero-width joiners and variation selectors. Deliberately does not touch degree signs,
@@ -299,7 +431,8 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
     if (mode === 'ing') {
       // Accept bullets, numbered lines, emoji-prefixed lines, or lines with measurements
       if (isBullet || isNumbered || hasMeasure || isEmojiBullet) {
-        ingredients.push(stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, ''));
+        const item = stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, '');
+        if (!isJunkIngredient(item)) ingredients.push(item);
         continue;
       }
       // Line looks like a step — switch modes
@@ -320,8 +453,11 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
     // No explicit mode yet — classify by content heuristic
     if (mode === 'none') {
       if ((isBullet || hasMeasure || isEmojiBullet) && !hasCookVerb) {
-        mode = 'ing';
-        ingredients.push(stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, ''));
+        const item = stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, '');
+        if (!isJunkIngredient(item)) {
+          mode = 'ing';
+          ingredients.push(item);
+        }
       } else if ((isNumbered && hasCookVerb) || (isNumbered && stripped.length > 40)) {
         mode = 'steps';
         instructions.push(stripped.replace(/^\d+[.)]\s*/, ''));
@@ -351,6 +487,7 @@ function cleanSocialText(text: string): string {
       if (/^[\d][0-9,.KkMm\s]*$/.test(l)) return false;
       // Platform label lines: "Instagram Reel", "TikTok video", "Facebook"
       if (/^(instagram|tiktok|facebook|youtube)\s*(reel|reels|video|post|story)?$/i.test(l)) return false;
+      if (looksLikeFacebookChrome(l) || isLoginWallLine(l)) return false;
       // Call-to-action lines: "Обязательно подпишись на ...", "Follow us for more recipes"
       if (/(подпишись|подпишитесь|подписывайся|подписывайтесь|ставь\s+лайк|ставьте\s+лайк|subscribe|follow\s+(me|us)|link\s+in\s+bio|ссылка\s+в\s+(шапке|био))/i.test(l)) return false;
       return true;
@@ -442,7 +579,7 @@ const READER_TAIL_RE =
 const READER_ENVELOPE_RE = /^(title|url source|published time|markdown content|content|warning):/i;
 
 const READER_NAV_RE =
-  /^(log in|log into facebook|forgot account\?|forgot password\?|join|like|comment|share|follow|create new account|or|·)$/i;
+  /^(log in|log into facebook|forgot account\?|forgot password\?|join|like|comment|share|follow|create new account|or|·|электронная почта или номер.*|войти|забыли аккаунт\??)$/i;
 
 const READER_MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)';
 
@@ -488,12 +625,14 @@ function extractPostText(raw: string): { text: string; image?: string } {
 }
 
 // The keyless tier is rate limited per IP and Supabase egress is shared with other projects, so
-// a 429 here is routine rather than fatal. Waiting it out is worth far more than a fast failure:
-// an import that takes a minute still beats a card the user has to fill in by hand. Setting the
-// optional JINA_API_KEY secret (free to obtain) raises the limit and makes retries rare.
-const READER_ATTEMPTS = 5;
-const READER_BACKOFF_MS = [4000, 8000, 12000, 16000];
-const READER_TIMEOUT_MS = 30000;
+// a 429 here is routine rather than fatal. Waiting it out is worth far more than a fast failure,
+// but five long attempts used to consume the whole Edge Function budget before Groq could run.
+// Three shorter tries leave room for the HTML proxy and the LLM. Setting the optional
+// JINA_API_KEY secret (free at jina.ai) raises the limit and makes retries rare:
+//   npx supabase secrets set JINA_API_KEY=... --project-ref pkxsthreznxgmhgdewic
+const READER_ATTEMPTS = 3;
+const READER_BACKOFF_MS = [3000, 6000, 10000];
+const READER_TIMEOUT_MS = 15000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -512,7 +651,9 @@ async function fetchReaderText(url: string): Promise<{ text: string; image?: str
 
       if (res.status === 429 || res.status >= 500) {
         await res.body?.cancel();
-        readerDiag = `reader_http_${res.status}`;
+        readerDiag = jinaKey
+          ? `reader_http_${res.status}`
+          : `reader_http_${res.status}_no_jina_key`;
         if (retryIn) {
           console.error(`[reader] throttled (${res.status}), attempt ${attempt}, waiting ${retryIn}ms`);
           await sleep(retryIn);
@@ -544,6 +685,97 @@ async function fetchReaderText(url: string): Promise<{ text: string; image?: str
     }
   }
   return undefined;
+}
+
+// Keyless HTML proxies used only after Jina has nothing left to give. They are slower and
+// less clean than r.jina.ai, but they do not share Jina's per-IP quota.
+const PROXY_URLS = [
+  (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+];
+
+async function fetchProxyHtml(url: string): Promise<string | undefined> {
+  for (const make of PROXY_URLS) {
+    try {
+      const res = await fetch(make(url), {
+        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html,*/*' },
+        signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        await res.body?.cancel();
+        readerDiag = `proxy_http_${res.status}`;
+        continue;
+      }
+      const html = await res.text();
+      if (html.length > 400) {
+        readerDiag = undefined;
+        return html;
+      }
+    } catch (err) {
+      readerDiag = `proxy_exception: ${String(err).slice(0, 120)}`;
+    }
+  }
+  return undefined;
+}
+
+function htmlToCaption(html: string): { text: string; image?: string } {
+  const text = extractArticleText(html);
+  const image =
+    extractMeta(html, 'og:image', 'property') ??
+    extractMeta(html, 'twitter:image', 'name') ??
+    extractMeta(html, 'twitter:image:src', 'name');
+  return { text, image };
+}
+
+// Jina first, then a keyless HTML proxy. Callers treat this as one "reader" step so a
+// partial card is never returned while either source is still untried.
+async function fetchFullText(
+  url: string,
+): Promise<{ text: string; image?: string; html?: string } | undefined> {
+  const jina = await fetchReaderText(url);
+  const jinaDiag = readerDiag;
+  if (jina?.text && jina.text.length > 80) return jina;
+
+  const html = await fetchProxyHtml(url);
+  if (!html) {
+    readerDiag = [jinaDiag, readerDiag].filter((d, i, arr) => d && arr.indexOf(d) === i).join('|') || jinaDiag;
+    return jina?.text ? jina : undefined;
+  }
+
+  const fromHtml = htmlToCaption(html);
+  if (fromHtml.text.length > (jina?.text.length ?? 0)) {
+    return { text: fromHtml.text, image: fromHtml.image ?? jina?.image, html };
+  }
+  return jina?.text ? { ...jina, html } : { text: fromHtml.text, image: fromHtml.image, html };
+}
+
+function captionLooksThin(s: string): boolean {
+  return !s.trim()
+    || /[…]\s*$/.test(s)
+    || /\.\.\.\s*$/.test(s)
+    || s.length < 200
+    || !/\d/.test(s)
+    || isLoginWallText(s)
+    || looksLikeFacebookChrome(s);
+}
+
+async function structureCaption(
+  cleanDesc: string,
+  lang: string,
+): Promise<{
+  structured: { title?: string; description?: string; ingredients: string[]; instructions: string[] } | null;
+  ingredients: string[];
+  instructions: string[];
+}> {
+  const structured = cleanDesc.length > 50 ? await tryLlmStructure(cleanDesc, lang) : null;
+  const regexResult = cleanDesc ? parseDescriptionText(cleanDesc) : { ingredients: [], instructions: [] };
+  return {
+    structured,
+    ingredients: structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients,
+    instructions: splitLongSteps(
+      structured?.instructions?.length ? structured.instructions : regexResult.instructions,
+    ),
+  };
 }
 
 // Social captions come back as one long line where list items are separated by an emoji bullet
@@ -653,13 +885,10 @@ function extractArticleText(html: string): string {
   return text.slice(from, from + ARTICLE_MAX_CHARS);
 }
 
-// Build a schema.org-shaped node out of the article text so the generic path downstream
-// (nutrition, image, translation, cleanup) keeps working unchanged.
-async function recipeFromArticle(
-  html: string,
+async function recipeFromText(
+  text: string,
   targetLang: string,
 ): Promise<Record<string, unknown> | null> {
-  const text = extractArticleText(html);
   if (text.length < 200) return null;
 
   const structured = await tryLlmStructure(text, targetLang, ARTICLE_MAX_CHARS);
@@ -677,6 +906,15 @@ async function recipeFromArticle(
     recipeIngredient: ingredients,
     recipeInstructions: instructions,
   };
+}
+
+// Build a schema.org-shaped node out of the article text so the generic path downstream
+// (nutrition, image, translation, cleanup) keeps working unchanged.
+async function recipeFromArticle(
+  html: string,
+  targetLang: string,
+): Promise<Record<string, unknown> | null> {
+  return recipeFromText(extractArticleText(html), targetLang);
 }
 
 // Trim a raw text block down to a short introductory description (2 sentences max, 300 chars max).
@@ -1206,6 +1444,22 @@ async function translateTexts(
   return missing < indexed.length ? result : null;
 }
 
+async function translateIfNeeded(
+  payload: { title: string; description: string; ingredients: string[]; instructions: string[] },
+  metaLang: string | undefined,
+  targetLang: string,
+): Promise<typeof payload> {
+  const sample = [payload.title, payload.description, ...payload.ingredients.slice(0, 5)].join(' ');
+  let from = await translateFrom(sample, metaLang, targetLang);
+  // Body can already be in the app language (LLM structured it) while the title is still
+  // the original. translateFrom then sees "already German" and skips the Russian title.
+  if (!from && (needsTranslation(payload.title, targetLang) || scriptsDisagree(payload.title, targetLang))) {
+    from = 'auto';
+  }
+  if (!from) return payload;
+  return (await translateRecipe(payload, from, targetLang)) ?? payload;
+}
+
 // Translate a whole recipe while keeping field boundaries intact. Dedicated translation
 // services first, the LLM only if every one of them is unreachable.
 async function translateRecipe(
@@ -1286,7 +1540,26 @@ serve(async (req) => {
   readerDiag = undefined;
 
   try {
-    const { url, lang = 'ru' } = await req.json();
+    const body = await req.json();
+    const lang = typeof body.lang === 'string' ? body.lang : 'ru';
+    const url = body.url;
+    const recipeIn = body.recipe;
+
+    // Copy-to-my-book: translate an already parsed recipe into the caller's language.
+    if (recipeIn && typeof recipeIn === 'object') {
+      const payload = {
+        title: String(recipeIn.title ?? ''),
+        description: String(recipeIn.description ?? ''),
+        ingredients: Array.isArray(recipeIn.ingredients) ? recipeIn.ingredients.map(String) : [],
+        instructions: Array.isArray(recipeIn.instructions) ? recipeIn.instructions.map(String) : [],
+      };
+      const translated = await translateIfNeeded(payload, undefined, lang);
+      const changed = translated.title !== payload.title || translated.description !== payload.description;
+      return new Response(
+        JSON.stringify({ ...cleanTexts(translated), translated: changed }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
     if (!url || typeof url !== 'string') {
       return new Response(JSON.stringify({ error: 'Missing url' }), {
@@ -1295,20 +1568,40 @@ serve(async (req) => {
       });
     }
 
-    const isSocial = /instagram\.com|tiktok\.com|facebook\.com/i.test(url);
+    const isFacebook = isFacebookUrl(url);
+    const isSocial = /instagram\.com|tiktok\.com|facebook\.com|fb\.watch/i.test(url);
     const isYouTube = /youtube\.com|youtu\.be/i.test(url);
 
     // ── Social media branch: microlink.io free API for OG metadata ──
     if (isSocial) {
+      let sourceUrl = url;
+      if (isFacebook) sourceUrl = await resolveFacebookUrl(url);
+
       let mlTitle: string | undefined;
       let mlDesc: string | undefined;
       let mlImage: string | undefined;
 
+      const dropChromeMeta = () => {
+        if (mlTitle && (looksLikeUrlJunk(mlTitle, sourceUrl) || looksLikeFacebookChrome(mlTitle))) {
+          mlTitle = undefined;
+        }
+        if (mlDesc && (isLoginWallText(mlDesc) || looksLikeFacebookChrome(mlDesc))) {
+          mlDesc = undefined;
+        }
+      };
+
+      const pickCaption = (title?: string, desc?: string) => {
+        const d = desc ?? '';
+        const t = title ? stripMetaChrome(title) : '';
+        const picked = t.length > d.length * 1.3 && t.length > d.length + 80 ? t : d;
+        return isLoginWallText(picked) || looksLikeFacebookChrome(picked) ? '' : picked;
+      };
+
       // Primary: microlink.io (bypasses CORS + bot-detection for public posts)
       try {
         const mlRes = await fetch(
-          `https://api.microlink.io?url=${encodeURIComponent(url)}&screenshot=false`,
-          { headers: { 'User-Agent': 'Mozilla/5.0' } },
+          `https://api.microlink.io?url=${encodeURIComponent(sourceUrl)}&screenshot=false`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) },
         );
         if (mlRes.ok) {
           const ml = await mlRes.json();
@@ -1320,74 +1613,96 @@ serve(async (req) => {
         }
       } catch { /* microlink unavailable — fall through to direct fetch */ }
 
-      // Discard the stub title before the fallback decision, otherwise "?ref=saved&v=..." counts
-      // as a successful read and the direct OG fetch never runs.
-      if (mlTitle && looksLikeUrlJunk(mlTitle, url)) mlTitle = undefined;
+      dropChromeMeta();
+      let rawCaption = pickCaption(mlTitle, mlDesc);
 
-      // Fallback: direct page fetch for OG tags (works for some FB public pages)
-      if (!mlTitle && !mlImage) {
+      const ingestHtml = (html: string) => {
+        if (isLoginWallText(html.slice(0, 8000))) return;
+        const pageTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
+        const pageOgTitle = extractMeta(html, 'og:title', 'property')
+          ?? (pageTitle ? decodeEntities(pageTitle) : undefined);
+        const pageOgDesc = extractMeta(html, 'og:description', 'property') ?? undefined;
+        const pageImage = extractMeta(html, 'og:image', 'property')
+          ?? extractMeta(html, 'twitter:image', 'name')
+          ?? extractMeta(html, 'twitter:image:src', 'name');
+        if (!mlTitle && pageOgTitle && !looksLikeFacebookChrome(pageOgTitle)) mlTitle = pageOgTitle;
+        if (!mlDesc && pageOgDesc && !isLoginWallText(pageOgDesc)) mlDesc = pageOgDesc;
+        if (!mlImage && pageImage) mlImage = pageImage;
+        const fromPage = htmlToCaption(html);
+        const pageCaption = fromPage.text.length > 80 ? fromPage.text : pickCaption(pageOgTitle, pageOgDesc);
+        if (pageCaption.length > rawCaption.length && !isLoginWallText(pageCaption)) {
+          rawCaption = pageCaption;
+        }
+      };
+
+      // Direct HTML fills missing photo/title and a richer caption. Previously this ran only
+      // when both were empty, so a stub image from Microlink skipped the page entirely.
+      if (!mlImage || captionLooksThin(rawCaption)) {
         try {
-          const pageRes = await fetchPage(url);
-          if (pageRes.ok) {
-            const html = await pageRes.text();
-            const pageTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
-            mlTitle = extractMeta(html, 'og:title', 'property')
-              ?? (pageTitle ? decodeEntities(pageTitle) : undefined);
-            mlDesc  = extractMeta(html, 'og:description', 'property') ?? undefined;
-            mlImage = extractMeta(html, 'og:image', 'property')
-              ?? extractMeta(html, 'twitter:image', 'name')
-              ?? extractMeta(html, 'twitter:image:src', 'name');
-          }
+          const pageRes = await fetchPage(sourceUrl);
+          if (pageRes.ok) ingestHtml(await pageRes.text());
         } catch { /* ignore */ }
       }
 
-      if (mlTitle && looksLikeUrlJunk(mlTitle, url)) mlTitle = undefined;
-
-      // Facebook and Instagram truncate og:description with an ellipsis but keep the whole
-      // caption in og:title, so prefer the title whenever it is meaningfully richer. The
-      // description stays the default to avoid changing sources for posts that already parse.
-      const descCaption = mlDesc ?? '';
-      const titleCaption = mlTitle ? stripMetaChrome(mlTitle) : '';
-      let rawCaption =
-        titleCaption.length > descCaption.length * 1.3 && titleCaption.length > descCaption.length + 80
-          ? titleCaption
-          : descCaption;
-
-      // Group posts come back truncated in both fields, so pull the real text with the reader.
-      // Only when the caption clearly cannot hold a whole recipe, since the reader costs seconds.
-      const truncated =
-        /[…]\s*$/.test(rawCaption) || /\.\.\.\s*$/.test(rawCaption) ||
-        rawCaption.length < 200 || !/\d/.test(rawCaption);
-      if (truncated) {
-        const full = await fetchReaderText(url);
-        if (full && full.text.length > rawCaption.length) rawCaption = full.text;
-        // Facebook sometimes serves a redirect stub with no og:image at all; the reader still
-        // renders the post, so its photo is the only image we are going to get.
-        if (!mlImage && full?.image) mlImage = full.image;
+      if (isFacebook && captionLooksThin(rawCaption)) {
+        const oem = await fetchFacebookOembed(sourceUrl)
+          ?? (sourceUrl !== url ? await fetchFacebookOembed(url) : undefined);
+        if (oem?.text) {
+          rawCaption = oem.text;
+          if (!mlTitle && oem.author) mlTitle = oem.author;
+        }
       }
 
-      // Still cut off means the reader never delivered, so whatever we parse is a fragment of
-      // the post. Say so instead of letting a stray half-sentence pass for an ingredient list.
+      if (isFacebook && captionLooksThin(rawCaption)) {
+        try {
+          const mb = await fetchPage(toMbasicFacebookUrl(sourceUrl));
+          if (mb.ok) ingestHtml(await mb.text());
+        } catch { /* ignore */ }
+      }
+
+      dropChromeMeta();
+      if (!rawCaption) rawCaption = pickCaption(mlTitle, mlDesc);
+
+      // Jina + HTML proxy run whenever the caption cannot hold a recipe — not only on ellipsis.
+      let usedReader = false;
+      const applyReader = async (target = sourceUrl) => {
+        usedReader = true;
+        const full = await fetchFullText(target);
+        if (full && full.text.length > rawCaption.length && !isLoginWallText(full.text)) {
+          rawCaption = full.text;
+        }
+        if (!mlImage && full?.image) mlImage = full.image;
+      };
+      if (captionLooksThin(rawCaption)) await applyReader();
+
+      if (isLoginWallText(rawCaption) || looksLikeFacebookChrome(rawCaption)) rawCaption = '';
+
+      let cleanDesc = rawCaption ? cleanSocialText(splitCaptionLines(rawCaption)) : '';
+      if (isLoginWallText(cleanDesc)) cleanDesc = '';
+      let parsed = await structureCaption(cleanDesc, lang);
+
+      // Quality gate: a card with no ingredients is not done while the reader is still untried.
+      if (!parsed.ingredients.length && !usedReader) {
+        await applyReader();
+        if (isLoginWallText(rawCaption) || looksLikeFacebookChrome(rawCaption)) rawCaption = '';
+        cleanDesc = rawCaption ? cleanSocialText(splitCaptionLines(rawCaption)) : '';
+        if (isLoginWallText(cleanDesc)) cleanDesc = '';
+        parsed = await structureCaption(cleanDesc, lang);
+      }
+
+      const { structured } = parsed;
+      const finalIngredients = parsed.ingredients.filter((i) => !isJunkIngredient(i));
+      const finalInstructions = parsed.instructions;
+      const isPartial = !finalIngredients.length;
       const captionTruncated = /[…]\s*$/.test(rawCaption) || /\.\.\.\s*$/.test(rawCaption);
 
-      // Clean engagement noise then optionally structure via LLM
-      const cleanDesc = rawCaption ? cleanSocialText(splitCaptionLines(rawCaption)) : '';
-      let structured: { title?: string; description?: string; ingredients: string[]; instructions: string[] } | null = null;
-      if (cleanDesc.length > 50) {
-        structured = await tryLlmStructure(cleanDesc, lang);
+      if (isFacebook && (!cleanDesc || isLoginWallText(cleanDesc)) && !finalIngredients.length) {
+        return new Response(
+          JSON.stringify({ error: facebookReadError(lang), readerError: readerDiag }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
       }
 
-      // Regex fallback when LLM is unavailable or returns no ingredients (mirrors YouTube branch)
-      const regexResult = cleanDesc ? parseDescriptionText(cleanDesc) : { ingredients: [], instructions: [] };
-      const finalIngredients = structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients;
-      const finalInstructions = splitLongSteps(
-        structured?.instructions?.length ? structured.instructions : regexResult.instructions,
-      );
-
-      const isPartial = !finalIngredients.length;
-
-      // Neither text nor a photo means every source was blocked or throttled. Saying so lets the
-      // user retry, which usually works, instead of leaving them a card with nothing in it.
       if (!cleanDesc && !mlImage) {
         return new Response(
           JSON.stringify({
@@ -1400,33 +1715,38 @@ serve(async (req) => {
         );
       }
 
-      // Build final title — fall back to first line of caption when og:title is just an account bio
-      const rawTitle = (structured?.title && structured.title.trim()) ? structured.title : stripMetaChrome(mlTitle ?? '');
+      const rawTitle = (structured?.title && structured.title.trim() && !looksLikeFacebookChrome(structured.title))
+        ? structured.title
+        : stripMetaChrome(mlTitle ?? '');
       let finalTitle = sanitizeTitle(rawTitle);
-      // Without the LLM the og:title fallback is the whole caption — keep only its first sentence
+      if (looksLikeFacebookChrome(finalTitle)) finalTitle = '';
       if (finalTitle.length > 80) finalTitle = sanitizeTitle(finalTitle.split(/[.!?]/)[0]);
-      if (!finalTitle || looksLikeBio(finalTitle)) {
+      if (!finalTitle || looksLikeBio(finalTitle) || looksLikeFacebookChrome(finalTitle)) {
         const firstLine = cleanDesc.split('\n').find((l) => l.trim().length > 3) ?? '';
         const candidate = sanitizeTitle(firstLine.split(/[.!?]/)[0]);
-        if (candidate.length > 2) finalTitle = candidate;
+        if (candidate.length > 2 && !looksLikeFacebookChrome(candidate)) finalTitle = candidate;
       }
 
-      // The LLM prompt already translates, but the regex fallback does not — so translate
-      // here whenever the result still is not in the app language.
+      if (isFacebook && (!finalTitle || looksLikeFacebookChrome(finalTitle)) && !finalIngredients.length) {
+        return new Response(
+          JSON.stringify({ error: facebookReadError(lang), readerError: readerDiag }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
       let socialOut = {
         title: finalTitle,
-        description: structured?.description || extractIntro(cleanDesc),
+        description: structured?.description && !isLoginWallText(structured.description) && !looksLikeFacebookChrome(structured.description)
+          ? structured.description
+          : extractIntro(cleanDesc),
         ingredients: finalIngredients,
         instructions: finalInstructions,
       };
-      const socialFrom = await translateFrom(
-        [socialOut.title, ...socialOut.ingredients.slice(0, 5)].join(' '),
+      socialOut = await translateIfNeeded(
+        socialOut,
         undefined,
         lang,
       );
-      if (socialFrom) {
-        socialOut = (await translateRecipe(socialOut, socialFrom, lang)) ?? socialOut;
-      }
 
       const out = cleanTexts(socialOut);
 
@@ -1471,6 +1791,7 @@ serve(async (req) => {
         try {
           const oembedRes = await fetch(
             `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+            { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) },
           );
           if (oembedRes.ok) {
             const oembed = await oembedRes.json();
@@ -1550,14 +1871,7 @@ serve(async (req) => {
         ingredients: finalIngredients,
         instructions: finalInstructions,
       };
-      const ytFrom = await translateFrom(
-        [ytOut.title, ...ytOut.ingredients.slice(0, 5)].join(' '),
-        sourceLang,
-        lang,
-      );
-      if (ytFrom) {
-        ytOut = (await translateRecipe(ytOut, ytFrom, lang)) ?? ytOut;
-      }
+      ytOut = await translateIfNeeded(ytOut, sourceLang, lang);
 
       const out = cleanTexts(ytOut);
 
@@ -1577,19 +1891,33 @@ serve(async (req) => {
 
     // ── Fetch the page (generic path) ──
     let html = '';
+    let readerImage: string | undefined;
+    let usedGenericReader = false;
     try {
       const pageRes = await fetchPage(url);
-      if (pageRes.ok) {
-        html = await pageRes.text();
-      } else {
-        return new Response(
-          JSON.stringify({ error: `Failed to fetch page: ${pageRes.status}` }),
-          { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+      if (pageRes.ok) html = await pageRes.text();
+    } catch { /* fall through to the reader */ }
+
+    // Datacenter IPs are often blocked. Jina then the HTML proxy recover the same page
+    // that a browser can open, instead of returning 502 before any recipe logic runs.
+    if (html.length < 800) {
+      usedGenericReader = true;
+      const full = await fetchFullText(url);
+      if (full?.html && full.html.length > html.length) html = full.html;
+      else if (full?.text) {
+        html = `<article>${full.text.split('\n').map((l) => `<p>${l}</p>`).join('')}</article>`;
       }
-    } catch {
+      if (full?.image) readerImage = full.image;
+    }
+
+    if (!html) {
       return new Response(
-        JSON.stringify({ error: 'Network error fetching page' }),
+        JSON.stringify({
+          error: lang === 'ru'
+            ? 'Не удалось открыть страницу. Попробуйте ещё раз через минуту.'
+            : 'Could not open this page. Please try again in a minute.',
+          readerError: readerDiag,
+        }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
@@ -1621,7 +1949,18 @@ serve(async (req) => {
     // No Recipe JSON-LD: read the article body instead. Falling back to og tags alone left
     // the card with a title and nothing else, and skipped translation entirely.
     if (!recipe) {
-      const article = await recipeFromArticle(html, lang);
+      let article = await recipeFromArticle(html, lang);
+      if ((!article || !(article.recipeIngredient as unknown[])?.length) && !usedGenericReader) {
+        usedGenericReader = true;
+        const full = await fetchFullText(url);
+        if (full?.html && full.html.length > html.length) {
+          html = full.html;
+          article = await recipeFromArticle(html, lang) ?? article;
+        } else if (full?.text) {
+          article = await recipeFromText(full.text, lang) ?? article;
+        }
+        if (full?.image) readerImage = full.image;
+      }
       if (article || ogTitle || pageTitle) {
         recipe = {
           name: article?.name || ogTitle || pageTitle || '',
@@ -1636,8 +1975,14 @@ serve(async (req) => {
         );
       }
     } else if (!Array.isArray(recipe.recipeIngredient) || !recipe.recipeIngredient.length) {
-      // A Recipe node with no ingredient list is a stub the theme emitted for SEO
-      const article = await recipeFromArticle(html, lang);
+      let article = await recipeFromArticle(html, lang);
+      if (!article && !usedGenericReader) {
+        usedGenericReader = true;
+        const full = await fetchFullText(url);
+        if (full?.html) article = await recipeFromArticle(full.html, lang);
+        else if (full?.text) article = await recipeFromText(full.text, lang);
+        if (full?.image) readerImage = full.image;
+      }
       if (article) {
         recipe.recipeIngredient = article.recipeIngredient;
         if (!flattenInstructions(recipe.recipeInstructions).length) {
@@ -1719,7 +2064,8 @@ serve(async (req) => {
         extractMeta(html, 'twitter:image', 'name') ??
         extractMeta(html, 'twitter:image:src', 'name') ??
         ogImage ??
-        twImage;
+        twImage ??
+        readerImage;
     }
 
     // ── Translate into the app language when the source page is in another language ──
@@ -1733,23 +2079,19 @@ serve(async (req) => {
     const langSample = [title, ...ingredients.slice(0, 5), instructions[0] ?? ''].join(' ');
     const from = await translateFrom(langSample, sourceLang, lang);
     let translated = false;
-    // Report what the text turned out to be, not what the page claimed, so the client does
-    // not warn about a foreign language on a page that was never foreign.
     sourceLang = from ? (from === 'auto' ? sourceLang : from) : lang;
 
-    if (from) {
-      const tr = await translateRecipe(
-        { title, description: description ?? '', ingredients, instructions },
-        from,
-        lang,
-      );
-      if (tr) {
-        translated = true;
-        outTitle = tr.title || outTitle;
-        outDesc = tr.description || outDesc;
-        if (tr.ingredients.length) outIngredients = tr.ingredients;
-        if (tr.instructions.length) outInstructions = tr.instructions;
-      }
+    const tr = await translateIfNeeded(
+      { title, description: description ?? '', ingredients, instructions },
+      sourceLang === lang ? undefined : sourceLang,
+      lang,
+    );
+    if (tr.title !== title || tr.description !== (description ?? '')) {
+      translated = true;
+      outTitle = tr.title || outTitle;
+      outDesc = tr.description || outDesc;
+      if (tr.ingredients.length) outIngredients = tr.ingredients;
+      if (tr.instructions.length) outInstructions = tr.instructions;
     }
 
     return new Response(
@@ -1771,6 +2113,7 @@ serve(async (req) => {
         translated,
         llmError: llmDiag,
         translateError: translateDiag,
+        readerError: readerDiag,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );

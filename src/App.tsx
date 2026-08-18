@@ -20,7 +20,7 @@ import { Search, ChefHat } from 'lucide-react';
 type AppView = BottomNavView;
 
 function AppContent() {
-	const { t } = useLanguage();
+	const { t, language } = useLanguage();
 	const { theme } = useTheme();
 	const { session, loading: authLoading } = useAuth();
 	const [showOnboarding, setShowOnboarding] = useState(false);
@@ -45,6 +45,7 @@ function AppContent() {
 		recipes,
 		shoppingList,
 		addRecipe,
+		copyRecipe,
 		updateRecipe,
 		deleteRecipe,
 		toggleRecipeStatus,
@@ -143,6 +144,12 @@ function AppContent() {
 				onAddRecipe={openAddModal}
 				onFridgeSearch={() => setShowFridge(true)}
 				onSignOut={handleSignOut}
+				onGoHome={() => {
+					setShowFridge(false);
+					setShowAddModal(false);
+					setSelectedRecipe(null);
+					setActiveView('recipes');
+				}}
 				userId={session.user.id}
 				email={session.user.email}
 			/>
@@ -235,6 +242,7 @@ function AppContent() {
 					<FriendsView
 						currentUserId={session.user.id}
 						onOpenRecipe={handleOpenRecipe}
+						onCopyRecipe={(recipe) => { void copyRecipe(recipe, language); }}
 					/>
 				)}
 			</main>
@@ -261,6 +269,12 @@ function AppContent() {
 						handleCloseRecipe();
 					}}
 					onAddToShoppingList={handleAddToShoppingList}
+					onCopy={
+						selectedRecipe.recipe.userId &&
+						selectedRecipe.recipe.userId !== session.user.id
+							? () => { void copyRecipe(selectedRecipe, language); }
+							: undefined
+					}
 				/>
 			)}
 

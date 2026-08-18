@@ -11,6 +11,7 @@ import { UserPlus, Users, ArrowLeft, Loader2, Pencil } from 'lucide-react';
 interface FriendsViewProps {
   currentUserId: string;
   onOpenRecipe: (recipe: FullRecipe) => void;
+  onCopyRecipe: (recipe: FullRecipe) => void;
 }
 
 function friendLabel(friend: FriendProfile) {
@@ -30,7 +31,7 @@ function friendSubtitle(friend: FriendProfile, label: string) {
   return '';
 }
 
-export function FriendsView({ currentUserId, onOpenRecipe }: FriendsViewProps) {
+export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: FriendsViewProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
   const [friends, setFriends] = useState<FriendProfile[]>([]);
@@ -231,6 +232,7 @@ export function FriendsView({ currentUserId, onOpenRecipe }: FriendsViewProps) {
           </div>
         </div>
         <p className={`text-sm ${theme.textSecondary} mb-4`}>{t('friendRecipes')}</p>
+        {message && <p className="text-sm text-green-600 mb-3">{message}</p>}
         {loadingRecipes ? (
           <div className="flex justify-center py-12">
             <Loader2 className={`w-8 h-8 animate-spin ${theme.textAccent}`} />
@@ -254,6 +256,10 @@ export function FriendsView({ currentUserId, onOpenRecipe }: FriendsViewProps) {
                     onEdit={() => undefined}
                     onDelete={() => undefined}
                     onToggleStatus={() => undefined}
+                    onCopy={() => {
+                      onCopyRecipe(recipe);
+                      setMessage(t('savedToMyBook'));
+                    }}
                   />
                 ))}
               </div>

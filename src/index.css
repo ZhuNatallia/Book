@@ -11,8 +11,17 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+/* Native <select> popups on Windows inherit the field text color but keep a
+   light OS background. In dark theme that is white-on-white, so the list
+   looks empty. color-scheme plus explicit option colors keep every language readable. */
+select option {
+  background-color: var(--surf-2);
+  color: var(--text);
+}
+
 :root,
 [data-theme='light'] {
+  color-scheme: light;
   --surf: #eef2f6;
   --surf-2: #f7f9fc;
   --card: #eef2f6;
@@ -30,6 +39,7 @@ input[type="number"] {
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
   --surf: #16181d;
   --surf-2: #1e2128;
   --card: rgba(255, 255, 255, 0.05);
@@ -47,6 +57,7 @@ input[type="number"] {
 }
 
 [data-theme='turquoise'] {
+  color-scheme: light;
   --surf: #e7f6f4;
   --surf-2: #f4fcfb;
   --card: #f7fffe;
@@ -64,6 +75,7 @@ input[type="number"] {
 }
 
 [data-theme='pumpkin'] {
+  color-scheme: light;
   --surf: #f5eee6;
   --surf-2: #faf6f1;
   --card: #fffaf5;
@@ -81,6 +93,7 @@ input[type="number"] {
 }
 
 [data-theme='lavender'] {
+  color-scheme: light;
   --surf: #efeaf8;
   --surf-2: #f7f4fc;
   --card: #efeaf8;

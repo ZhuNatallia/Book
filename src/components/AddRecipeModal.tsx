@@ -4,6 +4,7 @@ import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
 import { RECIPE_CATEGORIES } from '../data/categories';
 import { supabase } from '../lib/supabase';
+import { ThemedSelect } from './ThemedSelect';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle } from 'lucide-react';
 
 interface AddRecipeModalProps {
@@ -525,13 +526,16 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
               </div>
 
               {/* Category & Servings */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('category')}</label>
-                  <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
-                    <option value="" disabled>{t('selectCategory')}</option>
-                    {RECIPE_CATEGORIES.map(cat => <option key={cat} value={cat}>{tCategory(cat)}</option>)}
-                  </select>
+                  <ThemedSelect
+                    value={category}
+                    onChange={setCategory}
+                    placeholder={t('selectCategory')}
+                    className={inputCls}
+                    options={RECIPE_CATEGORIES.map((cat) => ({ value: cat, label: tCategory(cat) }))}
+                  />
                 </div>
                 <div>
                   <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('servings')}</label>
@@ -591,9 +595,14 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   {ingredients.map((ing, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <input type="text" value={ing.quantity} onChange={(e) => updateIngredient(idx, 'quantity', e.target.value)} className={`w-20 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder="1" />
-                      <select value={ing.unit} onChange={(e) => updateIngredient(idx, 'unit', e.target.value)} className={`w-20 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm`}>
-                        <option value="g">{t('g')}</option><option value="kg">{t('kg')}</option><option value="ml">{t('ml')}</option><option value="l">{t('l')}</option><option value="pcs">{t('pcs')}</option><option value="tbsp">{t('tbsp')}</option><option value="tsp">{t('tsp')}</option><option value="cup">{t('cup')}</option>
-                      </select>
+                      <div className="w-20">
+                        <ThemedSelect
+                          value={ing.unit}
+                          onChange={(unit) => updateIngredient(idx, 'unit', unit)}
+                          className={`px-2 py-2 ${theme.input} text-sm`}
+                          options={['g', 'kg', 'ml', 'l', 'pcs', 'tbsp', 'tsp', 'cup'].map((u) => ({ value: u, label: t(u) }))}
+                        />
+                      </div>
                       <input type="text" value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('ingredientPlaceholder')} />
                       {ingredients.length > 1 && (
                         <button type="button" onClick={() => removeIngredient(idx)} className="p-2 text-gray-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
@@ -629,7 +638,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
           ) : (
             <div className="space-y-6">
               {/* Block 1: Import by URL */}
-              <div className={`${theme.inputBg} p-4 rounded-xl border ${theme.inputBorder}`}>
+              <div className={`${theme.bgSecondary} p-4 rounded-xl border ${theme.borderAccent}`}>
                 <div className="flex items-center gap-2 mb-3">
                   <Film className={`w-5 h-5 ${theme.textAccent}`} />
                   <h3 className={`font-semibold ${theme.textPrimary}`}>
@@ -638,7 +647,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 </div>
                 <input
                   type="url" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} disabled={isParsing}
-                  className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl ${theme.inputPlaceholder} text-sm disabled:opacity-50`}
+                  className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-sm disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
                   placeholder={t('importUrlPlaceholder')}
                 />
                 <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>

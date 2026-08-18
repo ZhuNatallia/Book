@@ -16,6 +16,7 @@ import {
 	Home,
 	Eye,
 	EyeOff,
+	BookmarkPlus,
 } from 'lucide-react';
 
 interface RecipeCardProps {
@@ -25,6 +26,7 @@ interface RecipeCardProps {
 	onView: () => void;
 	onToggleStatus: () => void;
 	onToggleVisibility?: () => void;
+	onCopy?: () => void;
 	isOwner?: boolean;
 }
 
@@ -35,6 +37,7 @@ export function RecipeCard({
 	onView,
 	onToggleStatus,
 	onToggleVisibility,
+	onCopy,
 	isOwner = true,
 }: RecipeCardProps) {
 	const r = recipe.recipe as any;
@@ -173,14 +176,14 @@ export function RecipeCard({
 				</div>
 
 				{isOwner && (
-				<div className='absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10'>
+				<div className='absolute top-3 right-3 flex gap-2 z-10'>
 					<button
 						onClick={(e) => {
 							e.stopPropagation();
 							onEdit();
 						}}
 						title={t('edit')}
-						className={`p-2 ${theme.bgCard}/90 rounded-full shadow-md hover:bg-white transition-colors`}
+						className='p-2 rounded-full bg-white/95 backdrop-blur-md border border-white/80 shadow-md hover:bg-white transition-colors'
 					>
 						<Pencil className='w-4 h-4 text-gray-700' />
 					</button>
@@ -189,9 +192,25 @@ export function RecipeCard({
 							e.stopPropagation();
 							if (window.confirm(t('deleteConfirm'))) onDelete();
 						}}
-						className='p-2 bg-white/90 rounded-full shadow-md hover:bg-rose-100 transition-colors'
+						title={t('delete')}
+						className='p-2 rounded-full bg-white/95 backdrop-blur-md border border-white/80 shadow-md hover:bg-rose-100 transition-colors'
 					>
 						<Trash2 className='w-4 h-4 text-rose-500' />
+					</button>
+				</div>
+				)}
+
+				{!isOwner && onCopy && (
+				<div className='absolute top-3 right-3 z-10'>
+					<button
+						onClick={(e) => {
+							e.stopPropagation();
+							onCopy();
+						}}
+						title={t('saveToMyBook')}
+						className='p-2 rounded-full bg-white/95 backdrop-blur-md border border-white/80 shadow-md hover:bg-white transition-colors'
+					>
+						<BookmarkPlus className='w-4 h-4 text-gray-700' />
 					</button>
 				</div>
 				)}

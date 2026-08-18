@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
-import { X, Minus, Plus, Play, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle } from 'lucide-react';
+import { X, Minus, Plus, Play, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -10,16 +10,20 @@ const VIDEO_SOURCES = [
 	{ match: /youtube\.com|youtu\.be/i, labelKey: 'watchOnYoutube' },
 	{ match: /instagram\.com/i,         labelKey: 'watchOnInstagram' },
 	{ match: /tiktok\.com/i,            labelKey: 'watchOnTiktok' },
-	{ match: /facebook\.com|fb\.watch/i, labelKey: 'watchOnFacebook' },
 ] as const;
 
-// Units are stored in canonical form and rendered from the dictionary of the active language
-const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+const FB_VIDEO_RE = /fb\.watch|facebook\.com\/(?:watch|reel|reels|videos\/|share\/v\/)/i;
 
 function videoSourceLabel(url?: string) {
 	if (!url) return undefined;
+	if (/facebook\.com|fb\.watch/i.test(url)) {
+		return FB_VIDEO_RE.test(url) ? 'watchOnFacebook' : 'viewSourceOnFacebook';
+	}
 	return VIDEO_SOURCES.find((s) => s.match.test(url))?.labelKey;
 }
+
+// Units are stored in canonical form and rendered from the dictionary of the active language
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;
@@ -28,6 +32,7 @@ interface RecipeDetailProps {
 	onDelete: () => void;
 	onAddToShoppingList: (name: string, qty: number, unit: string) => void;
 	readOnly?: boolean;
+	onCopy?: () => void;
 }
 
 export function RecipeDetail({
@@ -37,6 +42,7 @@ export function RecipeDetail({
 	onDelete,
 	onAddToShoppingList,
 	readOnly = false,
+	onCopy,
 }: RecipeDetailProps) {
 	const { language, t } = useLanguage();
 	const { theme } = useTheme();
@@ -49,6 +55,7 @@ export function RecipeDetail({
 		new Set(),
 	);
 	const [addedToList, setAddedToList] = useState(false);
+	const [copiedToBook, setCopiedToBook] = useState(false);
 	const formatUnit = (unit: string) => {
 		if (!unit) return '';
 		const u = unit.toLowerCase().trim();
@@ -188,6 +195,26 @@ export function RecipeDetail({
 				</div>
 				)}
 
+				{readOnly && onCopy && (
+				<button
+					onClick={() => {
+						onCopy();
+						setCopiedToBook(true);
+						window.setTimeout(() => setCopiedToBook(false), 2500);
+					}}
+					className='z-10 absolute top-4 right-4 max-w-[calc(100%-5rem)] px-3 py-2 bg-white/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white transition-colors flex items-center gap-1.5'
+				>
+					{copiedToBook ? (
+						<CheckCircle className='w-4 h-4 text-emerald-600 flex-shrink-0' />
+					) : (
+						<BookmarkPlus className='w-4 h-4 text-gray-700 flex-shrink-0' />
+					)}
+					<span className='text-xs sm:text-sm font-medium text-gray-800 truncate'>
+						{copiedToBook ? t('savedToMyBook') : t('saveToMyBook')}
+					</span>
+				</button>
+				)}
+
 			</div>
 
 			{/* Content */}
@@ -303,7 +330,9 @@ export function RecipeDetail({
 							rel='noopener noreferrer'
 							className={`flex-1 m-1.5 py-2 px-2 ${theme.btnPrimary} font-medium flex items-center justify-center gap-1.5 text-center text-xs sm:text-sm leading-tight`}
 						>
-							<Play className='w-4 h-4 flex-shrink-0' />
+							{watchLabelKey === 'viewSourceOnFacebook'
+								? <ExternalLink className='w-4 h-4 flex-shrink-0' />
+								: <Play className='w-4 h-4 flex-shrink-0' />}
 							{t(watchLabelKey)}
 						</a>
 					) : (

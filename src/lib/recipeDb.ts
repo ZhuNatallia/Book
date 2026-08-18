@@ -161,6 +161,104 @@ export async function fetchFriendVisibleRecipes(friendId: string): Promise<FullR
   return ((data ?? []) as RecipeRow[]).map(mapRowToFullRecipe);
 }
 
+export function cloneRecipeForUser(full: FullRecipe, userId: string): FullRecipe {
+  const now = new Date().toISOString();
+  const recipeId = crypto.randomUUID();
+  return {
+    recipe: {
+      ...full.recipe,
+      id: recipeId,
+      userId,
+      status: 'want_to_cook',
+      visibleToFriends: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    translations: full.translations.map((tr) => ({
+      ...tr,
+      id: crypto.randomUUID(),
+      recipeId,
+    })),
+    ingredients: full.ingredients.map((ing) => {
+      const ingredientId = crypto.randomUUID();
+      return {
+        ...ing,
+        id: ingredientId,
+        recipeId,
+        translations: ing.translations.map((tr) => ({
+          ...tr,
+          id: crypto.randomUUID(),
+          ingredientId,
+        })),
+      };
+    }),
+    steps: full.steps.map((step) => {
+      const stepId = crypto.randomUUID();
+      return {
+        ...step,
+        id: stepId,
+        recipeId,
+        translations: step.translations.map((tr) => ({
+          ...tr,
+          id: crypto.randomUUID(),
+          stepId,
+        })),
+      };
+    }),
+  };
+}
+
+function pickLang<T extends { language: string }>(rows: T[], lang: string): T | undefined {
+  return rows.find((r) => r.language === lang) || rows.find((r) => r.language === 'ru') || rows[0];
+}
+
+export async function translateCloneToLang(full: FullRecipe, lang: Language): Promise<FullRecipe> {
+  const titleRow = pickLang(full.translations, lang);
+  const ingredientNames = full.ingredients.map(
+    (ing) => pickLang(ing.translations, lang)?.name ?? '',
+  );
+  const instructions = full.steps.map(
+    (step) => pickLang(step.translations, lang)?.instruction ?? '',
+  );
+
+  const { data, error } = await supabase.functions.invoke('parse-recipe', {
+    body: {
+      lang,
+      recipe: {
+        title: titleRow?.title ?? '',
+        description: titleRow?.description ?? '',
+        ingredients: ingredientNames,
+        instructions,
+      },
+    },
+  });
+  if (error || data?.error || !data) return full;
+
+  const title = typeof data.title === 'string' ? data.title : titleRow?.title ?? '';
+  const description = typeof data.description === 'string' ? data.description : titleRow?.description;
+  const names: string[] = Array.isArray(data.ingredients) ? data.ingredients.map(String) : ingredientNames;
+  const steps: string[] = Array.isArray(data.instructions) ? data.instructions.map(String) : instructions;
+
+  return {
+    ...full,
+    translations: full.translations.map((tr) => ({ ...tr, title, description })),
+    ingredients: full.ingredients.map((ing, i) => ({
+      ...ing,
+      translations: ing.translations.map((tr) => ({
+        ...tr,
+        name: names[i] ?? pickLang(ing.translations, lang)?.name ?? tr.name,
+      })),
+    })),
+    steps: full.steps.map((step, i) => ({
+      ...step,
+      translations: step.translations.map((tr) => ({
+        ...tr,
+        instruction: steps[i] ?? pickLang(step.translations, lang)?.instruction ?? tr.instruction,
+      })),
+    })),
+  };
+}
+
 export async function persistFullRecipe(userId: string, full: FullRecipe): Promise<FullRecipe> {
   const recipeId = isUuid(full.recipe.id) ? full.recipe.id : crypto.randomUUID();
   const now = new Date().toISOString();

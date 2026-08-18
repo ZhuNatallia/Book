@@ -11,13 +11,14 @@ interface HeaderProps {
   onAddRecipe: () => void;
   onFridgeSearch: () => void;
   onSignOut: () => void;
+  onGoHome: () => void;
   userId: string;
   email?: string;
 }
 
 type SettingsView = 'main' | 'language' | 'theme' | 'profile';
 
-export function Header({ onAddRecipe, onFridgeSearch, onSignOut, userId, email }: HeaderProps) {
+export function Header({ onAddRecipe, onFridgeSearch, onSignOut, onGoHome, userId, email }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -65,14 +66,19 @@ export function Header({ onAddRecipe, onFridgeSearch, onSignOut, userId, email }
     <header className={`sticky top-0 z-50 ${theme.headerBg} backdrop-blur-md`}>
       <div className="max-w-7xl mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onGoHome}
+            className="flex items-center gap-3 text-left"
+            title={t('recipes')}
+          >
             <div className={`w-10 h-10 bg-gradient-to-br ${theme.headerLogoGradient} rounded-2xl flex items-center justify-center neu-btn-primary`}>
               <ChefHat className="w-6 h-6 text-white" />
             </div>
             <h1 className={`text-xl font-bold bg-gradient-to-r ${theme.headerTitleGradient} bg-clip-text text-transparent`}>
               {t('appName')}
             </h1>
-          </div>
+          </button>
 
           <div className="flex items-center gap-3">
             <button

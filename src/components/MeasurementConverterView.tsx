@@ -5,7 +5,7 @@ import {
   measurementConversions,
   tablespoonConversions,
 } from '../data/sampleRecipes';
-import { Scale, Search, Plus, Trash2, X, RotateCcw } from 'lucide-react';
+import { Scale, Search, Plus, Trash2, RotateCcw, ArrowLeft } from 'lucide-react';
 
 interface ConversionRow {
   id: string;
@@ -157,32 +157,100 @@ export function MeasurementConverterView() {
     row.name[language as keyof typeof row.name] || row.name.en;
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
+    <div className="max-w-4xl mx-auto px-3 py-4 sm:p-4">
       <div className={`${theme.card} overflow-hidden`}>
         {/* Header */}
         <div className={`p-4 border-b ${theme.border}`}>
+          {showAddForm ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddForm(false);
+                  setAddError(null);
+                }}
+                className={`flex items-center gap-2 mb-3 ${theme.textSecondary}`}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="text-sm font-medium">{getLabel('measurementConverter')}</span>
+              </button>
+              <div className={`p-4 rounded-xl border ${theme.inputBorder} ${theme.bgSecondary} space-y-3`}>
+                <p className={`text-sm font-semibold ${theme.textPrimary}`}>{getLabel('addProduct')}</p>
+                <input
+                  type="text"
+                  value={addForm.name}
+                  onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder={getLabel('productName')}
+                  className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className={`block text-xs ${theme.textSecondary} mb-1`}>{getLabel('cupWeight')}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={addForm.cupWeight}
+                      onChange={(e) => setAddForm((f) => ({ ...f, cupWeight: e.target.value }))}
+                      placeholder="160"
+                      className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs ${theme.textSecondary} mb-1`}>
+                      {getLabel('tbspWeight')} <span className={`${theme.textSecondary} opacity-60`}>({getLabel('autoCalc')})</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={addForm.tbspWeight}
+                      onChange={(e) => setAddForm((f) => ({ ...f, tbspWeight: e.target.value }))}
+                      placeholder={addForm.cupWeight ? String(Math.round(parseFloat(addForm.cupWeight || '0') / 16)) : '10'}
+                      className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs ${theme.textSecondary} mb-1`}>
+                      {getLabel('tspWeight')} <span className={`${theme.textSecondary} opacity-60`}>({getLabel('autoCalc')})</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={addForm.tspWeight}
+                      onChange={(e) => setAddForm((f) => ({ ...f, tspWeight: e.target.value }))}
+                      placeholder={addForm.tbspWeight ? String(Math.round(parseFloat(addForm.tbspWeight || '0') / 3)) : '3'}
+                      className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                    />
+                  </div>
+                </div>
+                {addError && (
+                  <p className="text-xs text-red-500 text-center">{addError}</p>
+                )}
+                <button
+                  onClick={handleAddCustom}
+                  disabled={!addForm.name.trim() || !addForm.cupWeight}
+                  className={`w-full py-2.5 ${theme.btnPrimary} font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2`}
+                >
+                  <Plus className="w-4 h-4" />
+                  {getLabel('add')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Scale className={`w-5 h-5 ${theme.textAccent}`} />
               <h3 className={`font-bold ${theme.textPrimary}`}>{getLabel('measurementConverter')}</h3>
             </div>
             <button
-              onClick={() => setShowAddForm((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-all ${
-                showAddForm
-                  ? theme.btnSoft
-                  : theme.btnPrimary
-              }`}
+              onClick={() => setShowAddForm(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium ${theme.btnPrimary}`}
             >
-              {showAddForm ? (
-                <><X className="w-4 h-4" />{getLabel('cancel')}</>
-              ) : (
-                <><Plus className="w-4 h-4" />{getLabel('addProduct')}</>
-              )}
+              <Plus className="w-4 h-4" />
+              {getLabel('addProduct')}
             </button>
           </div>
 
-          {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -193,93 +261,31 @@ export function MeasurementConverterView() {
               className={`w-full pl-10 pr-4 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm ${theme.inputPlaceholder}`}
             />
           </div>
-
-          {/* Add custom product form */}
-          {showAddForm && (
-            <div className={`mt-3 p-4 rounded-xl border ${theme.inputBorder} ${theme.bgSecondary} space-y-3`}>
-              <p className={`text-sm font-semibold ${theme.textPrimary}`}>{getLabel('addProduct')}</p>
-              <input
-                type="text"
-                value={addForm.name}
-                onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder={getLabel('productName')}
-                className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
-              />
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className={`block text-xs ${theme.textSecondary} mb-1`}>{getLabel('cupWeight')}</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={addForm.cupWeight}
-                    onChange={(e) => setAddForm((f) => ({ ...f, cupWeight: e.target.value }))}
-                    placeholder="160"
-                    className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-xs ${theme.textSecondary} mb-1`}>
-                    {getLabel('tbspWeight')} <span className={`${theme.textSecondary} opacity-60`}>({getLabel('autoCalc')})</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={addForm.tbspWeight}
-                    onChange={(e) => setAddForm((f) => ({ ...f, tbspWeight: e.target.value }))}
-                    placeholder={addForm.cupWeight ? String(Math.round(parseFloat(addForm.cupWeight || '0') / 16)) : '10'}
-                    className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-xs ${theme.textSecondary} mb-1`}>
-                    {getLabel('tspWeight')} <span className={`${theme.textSecondary} opacity-60`}>({getLabel('autoCalc')})</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={addForm.tspWeight}
-                    onChange={(e) => setAddForm((f) => ({ ...f, tspWeight: e.target.value }))}
-                    placeholder={addForm.tbspWeight ? String(Math.round(parseFloat(addForm.tbspWeight || '0') / 3)) : '3'}
-                    className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
-                  />
-                </div>
-              </div>
-              {addError && (
-                <p className="text-xs text-red-500 text-center">{addError}</p>
-              )}
-              <button
-                onClick={handleAddCustom}
-                disabled={!addForm.name.trim() || !addForm.cupWeight}
-                className={`w-full py-2.5 ${theme.btnPrimary} font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2`}
-              >
-                <Plus className="w-4 h-4" />
-                {getLabel('add')}
-              </button>
-            </div>
+            </>
           )}
         </div>
 
-        {/* Table */}
+        {!showAddForm && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[580px]">
+          <table className="w-full table-fixed">
             <thead>
               <tr className={`${theme.bgSecondary} border-b ${theme.border}`}>
-                <th className={`text-left px-4 py-3 text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[140px]`}>
+                <th className={`text-left px-2 sm:px-4 py-2.5 sm:py-3 text-[10px] sm:text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[30%]`}>
                   {getLabel('colProduct')}
                 </th>
-                <th className={`text-center px-3 py-3 text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[90px]`}>
+                <th className={`text-center px-1 sm:px-3 py-2.5 sm:py-3 text-[10px] sm:text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[16%]`}>
                   <div>{getLabel('col1cup')}</div>
-                  <div className="text-[10px] font-normal opacity-60">240 мл</div>
+                  <div className="text-[9px] sm:text-[10px] font-normal opacity-60">240 мл</div>
                 </th>
-                <th className={`text-center px-3 py-3 text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[80px]`}>
+                <th className={`text-center px-1 sm:px-3 py-2.5 sm:py-3 text-[10px] sm:text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[16%]`}>
                   <div>{getLabel('col1tbsp')}</div>
-                  <div className="text-[10px] font-normal opacity-60">≈15 мл</div>
+                  <div className="text-[9px] sm:text-[10px] font-normal opacity-60">≈15 мл</div>
                 </th>
-                <th className={`text-center px-3 py-3 text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[80px]`}>
+                <th className={`text-center px-1 sm:px-3 py-2.5 sm:py-3 text-[10px] sm:text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[16%]`}>
                   <div>{getLabel('col1tsp')}</div>
-                  <div className="text-[10px] font-normal opacity-60">≈5 мл</div>
+                  <div className="text-[9px] sm:text-[10px] font-normal opacity-60">≈5 мл</div>
                 </th>
-                <th className={`text-left px-4 py-3 text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide`}>
+                <th className={`text-left px-1.5 sm:px-4 py-2.5 sm:py-3 text-[10px] sm:text-xs font-semibold ${theme.textSecondary} uppercase tracking-wide w-[22%]`}>
                   {getLabel('enterVal')}
                 </th>
               </tr>
@@ -295,10 +301,9 @@ export function MeasurementConverterView() {
                       row.isCustom ? `bg-orange-50/30 dark:bg-amber-900/10` : ''
                     }`}
                   >
-                    {/* Product name */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`font-medium text-sm ${theme.textPrimary}`}>
+                    <td className="px-2 sm:px-4 py-2.5 sm:py-3">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`font-medium text-xs sm:text-sm ${theme.textPrimary} break-words leading-tight`}>
                           {getName(row)}
                         </span>
                         {row.isCustom && (
@@ -312,60 +317,56 @@ export function MeasurementConverterView() {
                       </div>
                     </td>
 
-                    {/* 1 cup */}
-                    <td className="px-3 py-3 text-center transition-all duration-200">
+                    <td className="px-1 sm:px-3 py-2.5 sm:py-3 text-center">
                       {result ? (
                         <div className="flex flex-col items-center leading-tight">
-                          <span className="text-sm font-bold text-emerald-600">
+                          <span className="text-xs sm:text-sm font-bold text-emerald-600">
                             {formatAmount(result.cups)}
                           </span>
-                          <span className={`text-[10px] ${theme.textSecondary}`}>{getLabel('cup')}</span>
+                          <span className={`text-[9px] sm:text-[10px] ${theme.textSecondary}`}>{getLabel('cup')}</span>
                         </div>
                       ) : (
-                        <div>
-                          <span className={`text-sm font-bold ${theme.textAccent}`}>{row.cupWeight}</span>
-                          <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                        <div className="whitespace-nowrap">
+                          <span className={`text-xs sm:text-sm font-bold ${theme.textAccent}`}>{row.cupWeight}</span>
+                          <span className={`text-[10px] sm:text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
                         </div>
                       )}
                     </td>
 
-                    {/* 1 tbsp */}
-                    <td className="px-3 py-3 text-center transition-all duration-200">
+                    <td className="px-1 sm:px-3 py-2.5 sm:py-3 text-center">
                       {result ? (
                         <div className="flex flex-col items-center leading-tight">
-                          <span className="text-sm font-bold text-emerald-600">
+                          <span className="text-xs sm:text-sm font-bold text-emerald-600">
                             {formatAmount(result.tbsp)}
                           </span>
-                          <span className={`text-[10px] ${theme.textSecondary}`}>{getLabel('tbsp')}</span>
+                          <span className={`text-[9px] sm:text-[10px] ${theme.textSecondary}`}>{getLabel('tbsp')}</span>
                         </div>
                       ) : (
-                        <div>
-                          <span className={`text-sm font-bold ${theme.textAccent}`}>{row.tbspWeight}</span>
-                          <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                        <div className="whitespace-nowrap">
+                          <span className={`text-xs sm:text-sm font-bold ${theme.textAccent}`}>{row.tbspWeight}</span>
+                          <span className={`text-[10px] sm:text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
                         </div>
                       )}
                     </td>
 
-                    {/* 1 tsp */}
-                    <td className="px-3 py-3 text-center transition-all duration-200">
+                    <td className="px-1 sm:px-3 py-2.5 sm:py-3 text-center">
                       {result ? (
                         <div className="flex flex-col items-center leading-tight">
-                          <span className="text-sm font-bold text-emerald-600">
+                          <span className="text-xs sm:text-sm font-bold text-emerald-600">
                             {formatAmount(result.tsp)}
                           </span>
-                          <span className={`text-[10px] ${theme.textSecondary}`}>{getLabel('tsp')}</span>
+                          <span className={`text-[9px] sm:text-[10px] ${theme.textSecondary}`}>{getLabel('tsp')}</span>
                         </div>
                       ) : (
-                        <div>
-                          <span className={`text-sm font-bold ${theme.textAccent}`}>{row.tspWeight}</span>
-                          <span className={`text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
+                        <div className="whitespace-nowrap">
+                          <span className={`text-xs sm:text-sm font-bold ${theme.textAccent}`}>{row.tspWeight}</span>
+                          <span className={`text-[10px] sm:text-xs ${theme.textSecondary} ml-0.5`}>{getLabel('g')}</span>
                         </div>
                       )}
                     </td>
 
-                    {/* Custom input */}
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-1.5">
+                    <td className="px-1.5 sm:px-4 py-2">
+                      <div className="flex items-center gap-0.5 sm:gap-1.5 min-w-0">
                         <input
                           type="number"
                           min="0"
@@ -377,11 +378,11 @@ export function MeasurementConverterView() {
                             }))
                           }
                           placeholder="0"
-                          className={`w-20 px-2 py-1.5 ${theme.inputBg} ${theme.inputText} border ${
+                          className={`w-12 sm:w-20 min-w-0 px-1 sm:px-2 py-1.5 ${theme.inputBg} ${theme.inputText} border ${
                             result ? 'border-emerald-400' : theme.inputBorder
-                          } rounded-lg text-sm text-center focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder} transition-colors`}
+                          } rounded-lg text-xs sm:text-sm text-center focus:ring-2 focus:ring-orange-500 focus:border-transparent ${theme.inputPlaceholder} transition-colors`}
                         />
-                        <span className={`text-xs ${theme.textSecondary}`}>{getLabel('g')}</span>
+                        <span className={`text-[10px] sm:text-xs ${theme.textSecondary} shrink-0`}>{getLabel('g')}</span>
                         {inputVal && (
                           <button
                             onClick={() =>
@@ -411,6 +412,7 @@ export function MeasurementConverterView() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );

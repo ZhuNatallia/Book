@@ -7,6 +7,8 @@ import {
   isSampleRecipeId,
   isUuid,
   persistFullRecipe,
+  cloneRecipeForUser,
+  translateCloneToLang,
   updateRecipeFlags,
 } from '../lib/recipeDb';
 
@@ -47,6 +49,18 @@ export function useRecipeStore(userId?: string) {
 			})
 			.catch((err) => console.error(err));
 	}, [userId]);
+
+	const copyRecipe = useCallback(async (full: FullRecipe, lang: Language) => {
+		if (!userId) return;
+		const clone = cloneRecipeForUser(full, userId);
+		let toSave = clone;
+		try {
+			toSave = await translateCloneToLang(clone, lang);
+		} catch (err) {
+			console.error(err);
+		}
+		addRecipe(toSave);
+	}, [userId, addRecipe]);
 
 	const updateRecipe = useCallback((updatedRecipe: FullRecipe) => {
 		setRecipes((prev) =>
@@ -230,6 +244,7 @@ export function useRecipeStore(userId?: string) {
 		recipes,
 		shoppingList,
 		addRecipe,
+		copyRecipe,
 		updateRecipe,
 		deleteRecipe,
 		toggleRecipeStatus,
