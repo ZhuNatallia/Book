@@ -172,16 +172,16 @@ export function MeasurementConverterView() {
                 className={`flex items-center gap-2 mb-3 ${theme.textSecondary}`}
               >
                 <ArrowLeft className="w-4 h-4" />
-                <span className="text-sm font-medium">{getLabel('measurementConverter')}</span>
+                <span className="text-base font-medium">{getLabel('measurementConverter')}</span>
               </button>
               <div className={`p-4 rounded-xl border ${theme.inputBorder} ${theme.bgSecondary} space-y-3`}>
-                <p className={`text-sm font-semibold ${theme.textPrimary}`}>{getLabel('addProduct')}</p>
+                <p className={`text-base font-semibold ${theme.textPrimary}`}>{getLabel('addProduct')}</p>
                 <input
                   type="text"
                   value={addForm.name}
                   onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder={getLabel('productName')}
-                  className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                  className={`w-full px-3 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
                 />
                 <div className="grid grid-cols-3 gap-2">
                   <div>
@@ -192,7 +192,7 @@ export function MeasurementConverterView() {
                       value={addForm.cupWeight}
                       onChange={(e) => setAddForm((f) => ({ ...f, cupWeight: e.target.value }))}
                       placeholder="160"
-                      className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                      className={`w-full px-3 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
                     />
                   </div>
                   <div>
@@ -205,7 +205,7 @@ export function MeasurementConverterView() {
                       value={addForm.tbspWeight}
                       onChange={(e) => setAddForm((f) => ({ ...f, tbspWeight: e.target.value }))}
                       placeholder={addForm.cupWeight ? String(Math.round(parseFloat(addForm.cupWeight || '0') / 16)) : '10'}
-                      className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                      className={`w-full px-3 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
                     />
                   </div>
                   <div>
@@ -218,7 +218,7 @@ export function MeasurementConverterView() {
                       value={addForm.tspWeight}
                       onChange={(e) => setAddForm((f) => ({ ...f, tspWeight: e.target.value }))}
                       placeholder={addForm.tbspWeight ? String(Math.round(parseFloat(addForm.tbspWeight || '0') / 3)) : '3'}
-                      className={`w-full px-3 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
+                      className={`w-full px-3 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder} focus:ring-2 focus:ring-orange-500 focus:border-transparent`}
                     />
                   </div>
                 </div>
@@ -228,7 +228,7 @@ export function MeasurementConverterView() {
                 <button
                   onClick={handleAddCustom}
                   disabled={!addForm.name.trim() || !addForm.cupWeight}
-                  className={`w-full py-2.5 ${theme.btnPrimary} font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2`}
+                  className={`w-full py-2.5 ${theme.btnPrimary} font-medium text-base disabled:opacity-50 flex items-center justify-center gap-2`}
                 >
                   <Plus className="w-4 h-4" />
                   {getLabel('add')}
@@ -244,7 +244,7 @@ export function MeasurementConverterView() {
             </div>
             <button
               onClick={() => setShowAddForm(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium ${theme.btnPrimary}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-base font-medium ${theme.btnPrimary}`}
             >
               <Plus className="w-4 h-4" />
               {getLabel('addProduct')}
@@ -258,7 +258,7 @@ export function MeasurementConverterView() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={getLabel('search')}
-              className={`w-full pl-10 pr-4 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm ${theme.inputPlaceholder}`}
+              className={`w-full pl-10 pr-4 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent text-base ${theme.inputPlaceholder}`}
             />
           </div>
             </>

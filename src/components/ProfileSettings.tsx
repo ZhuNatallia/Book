@@ -154,7 +154,7 @@ export function ProfileSettings({ userId, email }: ProfileSettingsProps) {
   };
 
   const myLabel = myName.trim() || (myUsername ? `@${myUsername}` : email || '');
-  const inputCls = `w-full px-3 py-2 text-sm ${theme.input}`;
+  const inputCls = `w-full px-3 py-2.5 text-base ${theme.input}`;
 
   return (
     <div className="p-3 space-y-3">
@@ -220,7 +220,7 @@ export function ProfileSettings({ userId, email }: ProfileSettingsProps) {
       <button
         onClick={handleSave}
         disabled={saving}
-        className={`w-full px-4 py-2.5 ${theme.btnPrimary} text-sm font-medium disabled:opacity-50`}
+        className={`w-full px-4 py-2.5 ${theme.btnPrimary} text-base font-medium disabled:opacity-50`}
       >
         {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : t('saveProfile')}
       </button>

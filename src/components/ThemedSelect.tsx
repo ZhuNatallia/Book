@@ -77,7 +77,7 @@ export function ThemedSelect({
               <li key={opt.value} role="option" aria-selected={opt.value === value}>
                 <button
                   type="button"
-                  className={`w-full text-left px-3 py-2 text-sm ${
+                  className={`w-full text-left px-3 py-2.5 text-base ${
                     opt.value === value ? theme.tabActiveBg : ''
                   }`}
                   style={{ color: 'var(--text)' }}

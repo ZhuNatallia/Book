@@ -81,7 +81,7 @@ export function FridgeSearchView({ recipes, onOpenRecipe, onClose }: FridgeSearc
             onChange={(e) => setFridgeQuery(e.target.value)}
             placeholder={t('searchIngredients')}
             rows={3}
-            className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm ${theme.inputPlaceholder}`}
+            className={`w-full px-4 py-3 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-base ${theme.inputPlaceholder}`}
           />
           <p className={`text-xs ${theme.textSecondary} mt-2`}>
             {t('fridgeHint')}
@@ -90,7 +90,7 @@ export function FridgeSearchView({ recipes, onOpenRecipe, onClose }: FridgeSearc
 
         {fridgeQuery && fridgeResults.length > 0 && (
           <div className="p-4 space-y-3">
-            <p className={`text-sm ${theme.textSecondary}`}>
+            <p className={`text-base ${theme.textSecondary}`}>
               {`${fridgeResults.length} ${t('recipesFound')}`}
             </p>
             {fridgeResults.map((result) => {
@@ -112,7 +112,7 @@ export function FridgeSearchView({ recipes, onOpenRecipe, onClose }: FridgeSearc
                     />
                   )}
                   <div className="flex-1">
-                    <p className={`font-medium ${theme.textPrimary}`}>{translation?.title}</p>
+                    <p className={`font-medium text-base ${theme.textPrimary}`}>{translation?.title}</p>
                     <p className="text-xs text-green-600 mt-1">
                       {result.matchedIngredients.slice(0, 3).join(', ')}
                       {result.matchedIngredients.length > 3 &&

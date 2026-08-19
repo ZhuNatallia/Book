@@ -120,7 +120,7 @@ export function ShoppingListView({
 								setNewItem('');
 							}
 						}}
-						className={`flex-1 p-2 ${theme.input}`}
+						className={`flex-1 p-2.5 text-base ${theme.input}`}
 						placeholder={t('addItemPlaceholder')}
 					/>
 					<button
@@ -236,7 +236,7 @@ export function ShoppingListView({
 								{item.checked ? <Check className='w-4 h-4' /> : index + 1}
 							</button>
 							<span
-								className={`truncate ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
+								className={`truncate text-base ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
 							>
 								{item.ingredientName}
 							</span>

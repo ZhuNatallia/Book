@@ -225,7 +225,7 @@ export function RecipeDetail({
 						{translation.title}
 					</h1>
 					{translation.description && (
-						<p className={`${theme.textSecondary} text-sm sm:text-base mt-2 leading-relaxed whitespace-pre-line`}>
+						<p className={`${theme.textSecondary} text-base mt-2 leading-relaxed whitespace-pre-line`}>
 							{translation.description}
 						</p>
 					)}
@@ -246,7 +246,7 @@ export function RecipeDetail({
 					className={`p-4 border-b ${theme.border} flex flex-wrap items-center justify-between gap-4 bg-black/5 dark:bg-white/5`}
 				>
 					<div className='flex items-center gap-3'>
-						<span className={`text-sm font-medium ${theme.textSecondary}`}>
+						<span className={`text-base font-medium ${theme.textSecondary}`}>
 							{t('servings')}
 						</span>
 						<div
@@ -315,7 +315,7 @@ export function RecipeDetail({
 				<div className={`flex items-stretch border-b ${theme.border} mt-2`}>
 					<button
 						onClick={() => setActiveTab('ingredients')}
-						className={`flex-1 py-3 font-medium text-sm transition-colors ${
+						className={`flex-1 py-3 font-medium text-base transition-colors ${
 							activeTab === 'ingredients' || showWatchInsteadOfSteps
 								? `${theme.tabActive} border-b-2 ${theme.tabActiveBorder} ${theme.tabActiveBg}`
 								: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
@@ -328,7 +328,7 @@ export function RecipeDetail({
 							href={recipe.recipe.sourceUrl}
 							target='_blank'
 							rel='noopener noreferrer'
-							className={`flex-1 m-1.5 py-2 px-2 ${theme.btnPrimary} font-medium flex items-center justify-center gap-1.5 text-center text-xs sm:text-sm leading-tight`}
+							className={`flex-1 m-1.5 py-2 px-2 ${theme.btnPrimary} font-medium flex items-center justify-center gap-1.5 text-center text-sm sm:text-base leading-tight`}
 						>
 							{watchLabelKey === 'viewSourceOnFacebook'
 								? <ExternalLink className='w-4 h-4 flex-shrink-0' />
@@ -338,7 +338,7 @@ export function RecipeDetail({
 					) : (
 						<button
 							onClick={() => setActiveTab('steps')}
-							className={`flex-1 py-3 font-medium text-sm transition-colors ${
+							className={`flex-1 py-3 font-medium text-base transition-colors ${
 								activeTab === 'steps'
 									? `${theme.tabActive} border-b-2 ${theme.tabActiveBorder} ${theme.tabActiveBg}`
 									: `${theme.textSecondary} hover:text-gray-400 dark:hover:text-gray-200`
@@ -381,7 +381,7 @@ export function RecipeDetail({
 												{scaledQty % 1 === 0 ? scaledQty : scaledQty.toFixed(1)}{' '}
 												{formatUnit(ing.unit)}
 											</span>
-											<span className={`${theme.textPrimary} ml-2 font-medium`}>
+											<span className={`${theme.textPrimary} ml-2 font-medium text-base`}>
 												{name}
 											</span>
 										</span>
@@ -420,7 +420,7 @@ export function RecipeDetail({
 										{idx + 1}
 									</div>
 									<div className='flex-1'>
-										<p className={`${theme.textPrimary} font-medium`}>
+										<p className={`${theme.textPrimary} font-medium text-base`}>
 											{getStepInstruction(step)}
 										</p>
 										{step.timerMinutes && (

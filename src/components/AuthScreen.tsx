@@ -99,7 +99,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     }
   };
 
-  const inputCls = `w-full pl-11 pr-4 py-3.5 ${theme.input}`;
+  const inputCls = `w-full pl-11 pr-4 py-3.5 text-base ${theme.input}`;
 
   return (
     <div className={`min-h-screen flex flex-col ${theme.bgPrimary}`}>
@@ -112,7 +112,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
         <h1 className={`text-2xl font-bold ${theme.textPrimary} mb-1`}>
           {mode === 'forgot' ? t('authForgotTitle') : t('authWelcome')}
         </h1>
-        <p className={`${theme.textSecondary} text-sm mb-8 text-center`}>
+        <p className={`${theme.textSecondary} text-base mb-8 text-center`}>
           {mode === 'forgot' ? t('authForgotDesc') : t('authWelcomeDesc')}
         </p>
 
@@ -121,7 +121,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
           <div className={`flex w-full mb-6 ${theme.card} p-1`}>
             <button
               onClick={() => { setMode('login'); setError(null); }}
-              className={`flex-1 py-2.5 text-sm font-medium transition-all ${
+              className={`flex-1 py-2.5 text-base font-medium transition-all ${
                 mode === 'login'
                   ? theme.chipActive
                   : theme.textSecondary
@@ -131,7 +131,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
             </button>
             <button
               onClick={() => { setMode('signup'); setError(null); }}
-              className={`flex-1 py-2.5 text-sm font-medium transition-all ${
+              className={`flex-1 py-2.5 text-base font-medium transition-all ${
                 mode === 'signup'
                   ? theme.chipActive
                   : theme.textSecondary

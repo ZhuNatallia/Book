@@ -429,8 +429,8 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
   if (!isOpen) return null;
 
-  const inputCls = `w-full px-3 py-2 ${theme.input}`;
-  const smallInputCls = `w-full px-2 py-2 text-sm ${theme.input}`;
+  const inputCls = `w-full px-3 py-2.5 text-base ${theme.input}`;
+  const smallInputCls = `w-full px-2 py-2.5 text-base ${theme.input}`;
   const loadingSteps = [
     { label: t('loadingFetch'), icon: Link2 },
     { label: t('loadingExtract'), icon: Download },
@@ -478,7 +478,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
             <div className="space-y-4">
               {/* Image */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-2`}>
+                <label className={`block text-base font-medium ${theme.label} mb-2`}>
                   {t('dishPhoto')}
                 </label>
                 {imageUrl ? (
@@ -509,26 +509,26 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
               {/* Title */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('title')}</label>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('title')}</label>
                 <input type="text" value={title} onChange={(e) => setTitle(capitalizeFirst(e.target.value))} className={inputCls} placeholder={t('titlePlaceholder')} />
               </div>
 
               {/* Description */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('description')}</label>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('description')}</label>
                 <textarea value={description} onChange={(e) => setDescription(capitalizeFirst(e.target.value))} rows={2} className={inputCls} placeholder={t('descriptionPlaceholder')} />
               </div>
 
               {/* Source URL */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('source')} URL</label>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('source')} URL</label>
                 <input type="url" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} className={inputCls} placeholder="https://..." />
               </div>
 
               {/* Category & Servings */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('category')}</label>
+                  <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('category')}</label>
                   <ThemedSelect
                     value={category}
                     onChange={setCategory}
@@ -538,14 +538,14 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   />
                 </div>
                 <div>
-                  <label className={`block text-sm font-medium ${theme.label} mb-1`}>{t('servings')}</label>
+                  <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('servings')}</label>
                   <input type="text" value={servings} onChange={(e) => setServings(e.target.value)} className={inputCls} placeholder={t('servingsPlaceholder')} />
                 </div>
               </div>
 
               {/* Nutrition (КБЖУ) */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-2`}>
+                <label className={`block text-base font-medium ${theme.label} mb-2`}>
                   {t('nutritionPerServing')}
                 </label>
                 <div className="grid grid-cols-4 gap-2">
@@ -590,20 +590,20 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
               {/* Ingredients */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-2`}>{t('ingredients')}</label>
+                <label className={`block text-base font-medium ${theme.label} mb-2`}>{t('ingredients')}</label>
                 <div className="space-y-2">
                   {ingredients.map((ing, idx) => (
                     <div key={idx} className="flex items-center gap-2">
-                      <input type="text" value={ing.quantity} onChange={(e) => updateIngredient(idx, 'quantity', e.target.value)} className={`w-20 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder="1" />
+                      <input type="text" value={ing.quantity} onChange={(e) => updateIngredient(idx, 'quantity', e.target.value)} className={`w-20 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder="1" />
                       <div className="w-20">
                         <ThemedSelect
                           value={ing.unit}
                           onChange={(unit) => updateIngredient(idx, 'unit', unit)}
-                          className={`px-2 py-2 ${theme.input} text-sm`}
+                          className={`px-2 py-2.5 ${theme.input} text-base`}
                           options={['g', 'kg', 'ml', 'l', 'pcs', 'tbsp', 'tsp', 'cup'].map((u) => ({ value: u, label: t(u) }))}
                         />
                       </div>
-                      <input type="text" value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('ingredientPlaceholder')} />
+                      <input type="text" value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)} className={`flex-1 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder={t('ingredientPlaceholder')} />
                       {ingredients.length > 1 && (
                         <button type="button" onClick={() => removeIngredient(idx)} className="p-2 text-gray-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
                       )}
@@ -617,13 +617,13 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
               {/* Steps */}
               <div>
-                <label className={`block text-sm font-medium ${theme.label} mb-2`}>{t('steps')}</label>
+                <label className={`block text-base font-medium ${theme.label} mb-2`}>{t('steps')}</label>
                 <div className="space-y-2">
                   {steps.map((step, idx) => (
                     <div key={idx} className="flex items-start gap-2">
                       <span className={`w-6 h-6 ${theme.tabActiveBg} ${theme.textAccent} rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 mt-1`}>{idx + 1}</span>
-                      <textarea value={step.instruction} onChange={(e) => updateStep(idx, 'instruction', capitalizeFirst(e.target.value))} rows={2} className={`flex-1 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('stepPlaceholder')} />
-                      <input type="text" value={step.timerMinutes} onChange={(e) => updateStep(idx, 'timerMinutes', e.target.value)} className={`w-16 px-2 py-2 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-sm ${theme.inputPlaceholder}`} placeholder={t('minutes')} title={t('stepTimer')} />
+                      <textarea value={step.instruction} onChange={(e) => updateStep(idx, 'instruction', capitalizeFirst(e.target.value))} rows={2} className={`flex-1 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder={t('stepPlaceholder')} />
+                      <input type="text" value={step.timerMinutes} onChange={(e) => updateStep(idx, 'timerMinutes', e.target.value)} className={`w-16 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder={t('minutes')} title={t('stepTimer')} />
                       {steps.length > 1 && (
                         <button type="button" onClick={() => removeStep(idx)} className="p-2 text-gray-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
                       )}
@@ -647,7 +647,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 </div>
                 <input
                   type="url" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} disabled={isParsing}
-                  className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-sm disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
+                  className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-base disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
                   placeholder={t('importUrlPlaceholder')}
                 />
                 <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>

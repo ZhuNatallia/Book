@@ -4,9 +4,10 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { fetchFriendVisibleRecipes } from '../lib/recipeDb';
-import { RecipeCard, CategoryFilter } from './RecipeCard';
+import { RecipeCard } from './RecipeCard';
+import { RecipeFilterBar, RecipeStatusFilter } from './RecipeFilterBar';
 import { AvatarBox } from './ProfileSettings';
-import { UserPlus, Users, ArrowLeft, Loader2, Pencil } from 'lucide-react';
+import { UserPlus, Users, ArrowLeft, Loader2, Pencil, Search } from 'lucide-react';
 
 interface FriendsViewProps {
   currentUserId: string;
@@ -36,6 +37,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
   const { theme } = useTheme();
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [query, setQuery] = useState('');
+  const [friendSearch, setFriendSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -43,16 +45,38 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
   const [selectedFriend, setSelectedFriend] = useState<FriendProfile | null>(null);
   const [friendRecipes, setFriendRecipes] = useState<FullRecipe[]>([]);
   const [friendCategory, setFriendCategory] = useState('all');
+  const [friendStatus, setFriendStatus] = useState<RecipeStatusFilter>('all');
   const [loadingRecipes, setLoadingRecipes] = useState(false);
   const [pendingFriend, setPendingFriend] = useState<FriendProfile | null>(null);
   const [pendingName, setPendingName] = useState('');
   const [editingFriendId, setEditingFriendId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
 
+  const filteredFriends = useMemo(() => {
+    const q = friendSearch.trim().toLowerCase();
+    if (!q) return friends;
+    return friends.filter((friend) => {
+      const haystack = [
+        friendLabel(friend),
+        friend.nickname,
+        friend.displayName,
+        friend.username,
+        friend.email,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [friends, friendSearch]);
+
   const filteredFriendRecipes = useMemo(() => {
-    if (friendCategory === 'all') return friendRecipes;
-    return friendRecipes.filter((r) => r.recipe.category === friendCategory);
-  }, [friendRecipes, friendCategory]);
+    return friendRecipes.filter((r) => {
+      if (friendCategory !== 'all' && r.recipe.category !== friendCategory) return false;
+      if (friendStatus !== 'all' && r.recipe.status !== friendStatus) return false;
+      return true;
+    });
+  }, [friendRecipes, friendCategory, friendStatus]);
 
   const loadFriends = useCallback(async () => {
     const { data: rows, error: friendError } = await supabase
@@ -185,6 +209,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
   const openFriend = async (friend: FriendProfile) => {
     setSelectedFriend(friend);
     setFriendCategory('all');
+    setFriendStatus('all');
     setLoadingRecipes(true);
     setError(null);
     try {
@@ -199,7 +224,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
     }
   };
 
-  const inputCls = `w-full px-4 py-3 ${theme.input}`;
+  const inputCls = `w-full px-4 py-3 text-base ${theme.input}`;
 
   if (selectedFriend) {
     const name = friendLabel(selectedFriend) || t('friends');
@@ -210,11 +235,12 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
             setSelectedFriend(null);
             setFriendRecipes([]);
             setFriendCategory('all');
+            setFriendStatus('all');
           }}
           className={`flex items-center gap-2 mb-4 ${theme.textSecondary} hover:${theme.textPrimary}`}
         >
           <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm font-medium">{t('friends')}</span>
+          <span className="text-base font-medium">{t('friends')}</span>
         </button>
         <div className="flex items-center gap-3 mb-1">
           <AvatarBox
@@ -231,7 +257,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
             )}
           </div>
         </div>
-        <p className={`text-sm ${theme.textSecondary} mb-4`}>{t('friendRecipes')}</p>
+        <p className={`text-base ${theme.textSecondary} mb-4`}>{t('friendRecipes')}</p>
         {message && <p className="text-sm text-green-600 mb-3">{message}</p>}
         {loadingRecipes ? (
           <div className="flex justify-center py-12">
@@ -240,9 +266,11 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
         ) : (
           <>
             <div className="-mx-4">
-              <CategoryFilter
+              <RecipeFilterBar
                 selectedCategory={friendCategory}
                 onSelectCategory={setFriendCategory}
+                statusFilter={friendStatus}
+                onSelectStatus={setFriendStatus}
               />
             </div>
             {filteredFriendRecipes.length > 0 ? (
@@ -304,7 +332,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
 
       {pendingFriend && (
         <div className={`${theme.card} p-4`}>
-          <p className={`text-sm font-medium ${theme.textPrimary} mb-2`}>{t('friendName')}</p>
+          <p className={`text-base font-medium ${theme.textPrimary} mb-2`}>{t('friendName')}</p>
           <div className="flex gap-2">
             <input
               type="text"
@@ -338,6 +366,19 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
         </div>
       )}
 
+      {friends.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            value={friendSearch}
+            onChange={(e) => setFriendSearch(e.target.value)}
+            placeholder={t('searchFriendsPlaceholder')}
+            className={`w-full pl-12 pr-4 py-3 text-base ${theme.input}`}
+          />
+        </div>
+      )}
+
       <div className={`${theme.card} overflow-hidden`}>
         {loading ? (
           <div className="flex justify-center py-12">
@@ -348,9 +389,14 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
             <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
             <p>{t('noFriendsYet')}</p>
           </div>
+        ) : filteredFriends.length === 0 ? (
+          <div className={`p-8 text-center ${theme.textSecondary}`}>
+            <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p>{t('noFriendsMatch')}</p>
+          </div>
         ) : (
           <ul>
-            {friends.map((friend) => {
+            {filteredFriends.map((friend) => {
               const name = friendLabel(friend);
               const subtitle = friendSubtitle(friend, name);
               const isEditing = editingFriendId === friend.id;
@@ -371,13 +417,13 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                             const ok = await saveFriendNickname(friend.id, editingName);
                             if (ok) setEditingFriendId(null);
                           }}
-                          className={`px-4 py-2 ${theme.btnPrimary} text-sm font-medium`}
+                          className={`px-4 py-2 ${theme.btnPrimary} text-base font-medium`}
                         >
                           {t('save')}
                         </button>
                         <button
                           onClick={() => setEditingFriendId(null)}
-                          className={`px-4 py-2 text-sm ${theme.textSecondary}`}
+                          className={`px-4 py-2 text-base ${theme.textSecondary}`}
                         >
                           {t('cancel')}
                         </button>
@@ -397,7 +443,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                         <div className="min-w-0">
                           <p className={`font-semibold ${theme.textPrimary} truncate`}>{name}</p>
                           {subtitle && (
-                            <p className={`text-sm ${theme.textSecondary} truncate`}>{subtitle}</p>
+                            <p className={`text-base ${theme.textSecondary} truncate`}>{subtitle}</p>
                           )}
                         </div>
                       </button>

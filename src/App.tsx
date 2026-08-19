@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { ThemeProvider, useTheme } from './i18n/ThemeContext';
 import { AuthProvider, useAuth } from './i18n/AuthContext';
@@ -6,7 +6,8 @@ import { Header, BottomNav, BottomNavView } from './components/Header';
 import { Onboarding } from './components/Onboarding';
 import { AuthScreen } from './components/AuthScreen';
 import { supabase } from './lib/supabase';
-import { RecipeCard, CategoryFilter } from './components/RecipeCard';
+import { RecipeCard } from './components/RecipeCard';
+import { RecipeFilterBar, RecipeStatusFilter } from './components/RecipeFilterBar';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { RecipeDetail } from './components/RecipeDetail';
 import { ShoppingListView } from './components/ShoppingListView';
@@ -15,7 +16,7 @@ import { FridgeSearchView } from './components/FridgeSearchView';
 import { FriendsView } from './components/FriendsView';
 import { useRecipeStore } from './hooks/useRecipeStore';
 import { FullRecipe } from './types';
-import { Search, ChefHat } from 'lucide-react';
+import { ChefHat } from 'lucide-react';
 
 type AppView = BottomNavView;
 
@@ -63,7 +64,25 @@ function AppContent() {
 	const [showAddModal, setShowAddModal] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedCategory, setSelectedCategory] = useState('all');
+	const [statusFilter, setStatusFilter] = useState<RecipeStatusFilter>('all');
 	const [editingRecipe, setEditingRecipe] = useState<FullRecipe | null>(null);
+	const [headerCompact, setHeaderCompact] = useState(false);
+	const filterBarRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (activeView !== 'recipes' || showFridge) {
+			setHeaderCompact(false);
+			return;
+		}
+		const el = filterBarRef.current;
+		if (!el) return;
+		const io = new IntersectionObserver(
+			([entry]) => setHeaderCompact(!entry.isIntersecting),
+			{ threshold: 0, rootMargin: '-72px 0px 0px 0px' },
+		);
+		io.observe(el);
+		return () => io.disconnect();
+	}, [activeView, showFridge]);
 
 	const filteredRecipes = useMemo(() => {
 		let filtered = [...recipes];
@@ -72,20 +91,19 @@ function AppContent() {
 			filtered = filtered.filter((r) => r.recipe.category === selectedCategory);
 		}
 
+		if (statusFilter !== 'all') {
+			filtered = filtered.filter((r) => r.recipe.status === statusFilter);
+		}
+
 		if (searchQuery.trim()) {
 			const query = searchQuery.toLowerCase();
-			filtered = filtered.filter((r) => {
-				const hasMatch = r.translations.some(
-					(t) =>
-						t.title.toLowerCase().includes(query) ||
-						t.description?.toLowerCase().includes(query),
-				);
-				return hasMatch;
-			});
+			filtered = filtered.filter((r) =>
+				r.translations.some((tr) => tr.title.toLowerCase().includes(query)),
+			);
 		}
 
 		return filtered;
-	}, [recipes, selectedCategory, searchQuery]);
+	}, [recipes, selectedCategory, statusFilter, searchQuery]);
 
 	if (authLoading) {
 		return (
@@ -142,14 +160,17 @@ function AppContent() {
 		<div className={`min-h-screen ${theme.bgPrimary}`}>
 			<Header
 				onAddRecipe={openAddModal}
-				onFridgeSearch={() => setShowFridge(true)}
 				onSignOut={handleSignOut}
 				onGoHome={() => {
 					setShowFridge(false);
 					setShowAddModal(false);
 					setSelectedRecipe(null);
 					setActiveView('recipes');
+					setSelectedCategory('all');
+					setStatusFilter('all');
+					setSearchQuery('');
 				}}
+				compact={headerCompact && activeView === 'recipes' && !showFridge}
 				userId={session.user.id}
 				email={session.user.email}
 			/>
@@ -165,23 +186,20 @@ function AppContent() {
 
 				{!showFridge && activeView === 'recipes' && (
 					<>
-						<div className='px-4 mb-4'>
-							<div className='relative'>
-								<Search className='absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400' />
-								<input
-									type='text'
-									value={searchQuery}
-									onChange={(e) => setSearchQuery(e.target.value)}
-									placeholder={t('searchPlaceholder')}
-									className={`w-full pl-12 pr-4 py-3 ${theme.input}`}
-								/>
-							</div>
-						</div>
-
-						<div className='mb-4'>
-							<CategoryFilter
+						<div
+							ref={filterBarRef}
+							className={`sticky z-40 pb-1 ${theme.bgPrimary} ${
+								headerCompact ? 'top-14' : 'top-[72px]'
+							}`}
+						>
+							<RecipeFilterBar
 								selectedCategory={selectedCategory}
 								onSelectCategory={setSelectedCategory}
+								statusFilter={statusFilter}
+								onSelectStatus={setStatusFilter}
+								searchQuery={searchQuery}
+								onSearchChange={setSearchQuery}
+								onFridgeSearch={() => setShowFridge(true)}
 							/>
 						</div>
 
@@ -210,14 +228,16 @@ function AppContent() {
 									<ChefHat className='w-10 h-10 text-amber-300' />
 								</div>
 								<p className={`${theme.textSecondary} text-lg`}>
-									{t('noRecipes')}
+									{recipes.length > 0 ? t('noMatchingRecipes') : t('noRecipes')}
 								</p>
+								{recipes.length === 0 && (
 								<button
 									onClick={openAddModal}
 									className={`mt-4 px-6 py-2 ${theme.btnPrimary} font-medium`}
 								>
 									{t('addRecipe')}
 								</button>
+								)}
 							</div>
 						)}
 					</>

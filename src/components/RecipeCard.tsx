@@ -13,7 +13,6 @@ import {
 	Trash2,
 	Pencil,
 	UtensilsCrossed,
-	Home,
 	Eye,
 	EyeOff,
 	BookmarkPlus,
@@ -228,14 +227,14 @@ export function RecipeCard({
 				</h3>
 				{/* Always two lines tall, so cards in a row keep their buttons on one level */}
 				<p
-					className={`text-sm ${theme.textSecondary} line-clamp-2 min-h-[2.5rem] mb-3`}
+					className={`text-base ${theme.textSecondary} line-clamp-2 min-h-[3rem] mb-3`}
 				>
 					{translation.description || '\u00A0'}
 				</p>
 
 				<div className='flex items-center justify-between mt-auto pt-2 border-t border-gray-50 dark:border-zinc-800/50'>
 					<div
-						className={`flex items-center gap-3 text-xs ${theme.textSecondary}`}
+						className={`flex items-center gap-3 text-sm ${theme.textSecondary}`}
 					>
 						<span className='flex items-center gap-1'>
 							<User className='w-3.5 h-3.5' />
@@ -259,7 +258,7 @@ export function RecipeCard({
 
 				<button
 					onClick={onView}
-					className={`mt-4 w-full py-2.5 px-4 ${theme.btnPrimary} font-semibold text-sm`}
+					className={`mt-4 w-full py-2.5 px-4 ${theme.btnPrimary} font-semibold text-base`}
 				>
 					{t('viewRecipe')}
 				</button>
@@ -271,28 +270,30 @@ export function RecipeCard({
 interface CategoryFilterProps {
 	selectedCategory: string;
 	onSelectCategory: (category: string) => void;
+	className?: string;
 }
 
 export function CategoryFilter({
 	selectedCategory,
 	onSelectCategory,
+	className = 'w-full px-4 mb-4',
 }: CategoryFilterProps) {
-	const { tCategory } = useLanguage();
+	const { t, tCategory } = useLanguage();
 	const { theme } = useTheme();
 
 	const categories: { id: string; label: ReactNode }[] = [
-		{ id: 'all', label: <Home className='w-4 h-4' /> },
+		{ id: 'all', label: t('all') },
 		...RECIPE_CATEGORIES.map((id) => ({ id, label: tCategory(id) })),
 	];
 
 	return (
-		<div className='w-full px-4 mb-4'>
+		<div className={className}>
 			<div className='flex flex-wrap gap-2 justify-center'>
 				{categories.map((cat) => (
 					<button
 						key={cat.id}
 						onClick={() => onSelectCategory(cat.id)}
-						className={`px-4 py-2 text-sm font-medium whitespace-nowrap capitalize flex items-center justify-center ${
+						className={`px-4 py-2.5 text-base font-medium whitespace-nowrap capitalize flex items-center justify-center ${
 							selectedCategory === cat.id ? theme.chipActive : theme.chip
 						}`}
 					>
