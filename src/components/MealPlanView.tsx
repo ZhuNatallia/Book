@@ -1,11 +1,31 @@
 import { useMemo, useState, type DragEvent } from 'react';
-import { CalendarDays, Plus, ShoppingBag, X } from 'lucide-react';
-import { FullRecipe, Language, MealPlan } from '../types';
+import { CalendarDays, ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, X } from 'lucide-react';
+import { FullRecipe, Language, MealPlan, MealPlanEntry, MealSlot } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
-import { ingredientMergeKey, normalizeMergeUnit, pickDisplayName } from '../lib/ingredientMerge';
+import { mergeIngredientLines } from '../lib/ingredientMerge';
+import { addDaysISO, formatDayMonth, mondayISO, shiftWeek } from '../lib/week';
 
 const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+const SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+const WEEKDAYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'];
+const LOCALES: Record<string, string> = {
+  ru: 'ru-RU',
+  en: 'en-US',
+  de: 'de-DE',
+  uk: 'uk-UA',
+  pl: 'pl-PL',
+  it: 'it-IT',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  kk: 'kk-KZ',
+};
+const SLOT_KEYS: Record<MealSlot, string> = {
+  breakfast: 'mealBreakfast',
+  lunch: 'mealLunch',
+  dinner: 'mealDinner',
+  snack: 'mealSnack',
+};
 
 interface MealPlanViewProps {
   recipes: FullRecipe[];
@@ -32,6 +52,10 @@ function ingredientName(ingredient: FullRecipe['ingredients'][0], language: Lang
   );
 }
 
+function entryServings(entry: MealPlanEntry, recipe?: FullRecipe) {
+  return Math.max(1, entry.servings || recipe?.recipe.servings || 1);
+}
+
 export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: MealPlanViewProps) {
   const { language, t } = useLanguage();
   const { theme } = useTheme();
@@ -44,15 +68,21 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
     return map;
   }, [recipes]);
 
+  const weekStart = mealPlan.weekStart || mondayISO();
   const pool = mealPlan.entries.filter((e) => e.dayIndex == null);
-  const days = Array.from({ length: mealPlan.dayCount }, (_, i) =>
-    mealPlan.entries.filter((e) => e.dayIndex === i),
-  );
 
-  const moveToDay = (entryId: string, dayIndex: number | null) => {
+  const moveToDay = (entryId: string, dayIndex: number | null, mealSlot?: MealSlot | null) => {
     onChange({
       ...mealPlan,
-      entries: mealPlan.entries.map((e) => (e.id === entryId ? { ...e, dayIndex } : e)),
+      entries: mealPlan.entries.map((e) =>
+        e.id === entryId
+          ? {
+              ...e,
+              dayIndex,
+              mealSlot: dayIndex == null ? null : mealSlot ?? e.mealSlot ?? 'dinner',
+            }
+          : e,
+      ),
     });
     setPickedId(null);
   };
@@ -69,7 +99,26 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
       ...mealPlan,
       dayCount: count,
       entries: mealPlan.entries.map((e) =>
-        e.dayIndex != null && e.dayIndex >= count ? { ...e, dayIndex: null } : e,
+        e.dayIndex != null && e.dayIndex >= count ? { ...e, dayIndex: null, mealSlot: null } : e,
+      ),
+    });
+  };
+
+  const changeWeek = (delta: number) => {
+    onChange({
+      ...mealPlan,
+      weekStart: shiftWeek(weekStart, delta),
+      entries: mealPlan.entries.map((e) =>
+        e.dayIndex != null ? { ...e, dayIndex: null, mealSlot: null } : e,
+      ),
+    });
+  };
+
+  const setEntryServings = (entryId: string, servings: number) => {
+    onChange({
+      ...mealPlan,
+      entries: mealPlan.entries.map((e) =>
+        e.id === entryId ? { ...e, servings: Math.max(1, servings) } : e,
       ),
     });
   };
@@ -80,27 +129,26 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
   };
 
   const grocery = useMemo(() => {
-    const map = new Map<string, { name: string; quantity: number; unit: string }>();
+    const lines: { name: string; quantity: number; unit: string }[] = [];
     for (const entry of mealPlan.entries) {
       if (entry.dayIndex == null) continue;
       const recipe = byId.get(entry.recipeId);
       if (!recipe) continue;
+      const factor = entryServings(entry, recipe) / Math.max(1, recipe.recipe.servings || 1);
       for (const ing of recipe.ingredients) {
         const name = ingredientName(ing, language).trim();
         if (!name) continue;
-        const unit = normalizeMergeUnit(ing.unit || '') || (ing.unit || '').trim();
-        const key = ingredientMergeKey(name, unit);
-        if (!key.split('|')[0]) continue;
-        const prev = map.get(key);
-        if (prev) {
-          prev.quantity += ing.quantity || 0;
-          prev.name = pickDisplayName(prev.name, name);
-        } else {
-          map.set(key, { name, quantity: ing.quantity || 0, unit });
-        }
+        lines.push({
+          name,
+          quantity: (ing.quantity || 0) * factor,
+          unit: ing.unit || '',
+        });
       }
     }
-    return [...map.entries()].map(([key, value]) => ({ key, ...value }));
+    return mergeIngredientLines(lines).map((value) => ({
+      key: `${value.name}|${value.unit}`,
+      ...value,
+    }));
   }, [mealPlan.entries, byId, language]);
 
   const openGrocery = () => {
@@ -116,7 +164,8 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
     setShowGrocery(false);
   };
 
-  const duplicateToPool = (recipeId: string) => {
+  const duplicateToPool = (recipeId: string, servings?: number) => {
+    const recipe = byId.get(recipeId);
     onChange({
       ...mealPlan,
       entries: [
@@ -126,38 +175,90 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
           recipeId,
           dayIndex: null,
           sortOrder: mealPlan.entries.length,
+          servings: servings || recipe?.recipe.servings || 1,
+          mealSlot: null,
         },
       ],
     });
   };
 
-  const renderChip = (entryId: string, recipeId: string) => {
-    const recipe = byId.get(recipeId);
-    const title = recipe ? recipeTitle(recipe, language) : recipeId;
-    const selected = pickedId === entryId;
+  const dayMacros = (entries: MealPlanEntry[]) => {
+    let calories = 0;
+    let protein = 0;
+    let fat = 0;
+    let carbs = 0;
+    let any = false;
+    for (const entry of entries) {
+      const recipe = byId.get(entry.recipeId);
+      if (!recipe) continue;
+      const factor = entryServings(entry, recipe) / Math.max(1, recipe.recipe.servings || 1);
+      const r = recipe.recipe;
+      if (r.calories) {
+        calories += r.calories * factor;
+        any = true;
+      }
+      if (r.protein) {
+        protein += r.protein * factor;
+        any = true;
+      }
+      if (r.fat) {
+        fat += r.fat * factor;
+        any = true;
+      }
+      if (r.carbs) {
+        carbs += r.carbs * factor;
+        any = true;
+      }
+    }
+    if (!any) return null;
+    return { calories, protein, fat, carbs };
+  };
+
+  const renderChip = (entry: MealPlanEntry) => {
+    const recipe = byId.get(entry.recipeId);
+    const title = recipe ? recipeTitle(recipe, language) : entry.recipeId;
+    const selected = pickedId === entry.id;
+    const servings = entryServings(entry, recipe);
     return (
       <div
-        key={entryId}
+        key={entry.id}
         draggable
         onDragStart={(e) => {
-          e.dataTransfer.setData('text/plain', entryId);
+          e.dataTransfer.setData('text/plain', entry.id);
           e.dataTransfer.effectAllowed = 'move';
         }}
         onClick={(e) => {
           e.stopPropagation();
-          setPickedId(selected ? null : entryId);
+          setPickedId(selected ? null : entry.id);
         }}
         className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer ${
           selected ? theme.chipActive : theme.chip
         }`}
       >
         <span className="line-clamp-2 text-left flex-1">{title}</span>
+        <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="p-1 opacity-60 hover:opacity-100"
+            onClick={() => setEntryServings(entry.id, servings - 1)}
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+          <span className="text-xs w-4 text-center">{servings}</span>
+          <button
+            type="button"
+            className="p-1 opacity-60 hover:opacity-100"
+            onClick={() => setEntryServings(entry.id, servings + 1)}
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
         <button
           type="button"
           className="p-1 shrink-0 opacity-60 hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation();
-            duplicateToPool(recipeId);
+            duplicateToPool(entry.recipeId, servings);
           }}
           title={t('addToMenu')}
         >
@@ -168,7 +269,7 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
           className="p-1 shrink-0 opacity-60 hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation();
-            removeEntry(entryId);
+            removeEntry(entry.id);
           }}
           title={t('removeFromMenu')}
         >
@@ -178,10 +279,11 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
     );
   };
 
-  const dropOn = (dayIndex: number | null) => (e: DragEvent) => {
+  const dropOn = (dayIndex: number | null, mealSlot?: MealSlot | null) => (e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const entryId = e.dataTransfer.getData('text/plain');
-    if (entryId) moveToDay(entryId, dayIndex);
+    if (entryId) moveToDay(entryId, dayIndex, mealSlot);
   };
 
   return (
@@ -190,6 +292,19 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
         <div className="flex items-center gap-2 mb-3">
           <CalendarDays className={`w-5 h-5 ${theme.textAccent}`} />
           <h3 className={`font-bold ${theme.textPrimary}`}>{t('menu')}</h3>
+        </div>
+        <div className="flex items-center justify-between mb-3">
+          <button type="button" className={theme.iconBtn} onClick={() => changeWeek(-1)} title={t('weekPrev')}>
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <p className={`text-sm font-medium ${theme.textPrimary}`}>
+            {formatDayMonth(weekStart, LOCALES[language] || 'ru-RU')}
+            {' — '}
+            {formatDayMonth(addDaysISO(weekStart, 6), LOCALES[language] || 'ru-RU')}
+          </p>
+          <button type="button" className={theme.iconBtn} onClick={() => changeWeek(1)} title={t('weekNext')}>
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </div>
         <p className={`text-sm ${theme.textSecondary} mb-2`}>{t('menuDays')}</p>
         <div className="flex flex-wrap gap-2">
@@ -209,9 +324,9 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
       <div
         className={`${theme.card} p-4 min-h-[88px]`}
         onDragOver={(e) => e.preventDefault()}
-        onDrop={dropOn(null)}
+        onDrop={dropOn(null, null)}
         onClick={() => {
-          if (pickedId) moveToDay(pickedId, null);
+          if (pickedId) moveToDay(pickedId, null, null);
         }}
       >
         <p className={`text-sm font-semibold ${theme.textPrimary} mb-2`}>{t('menuPool')}</p>
@@ -219,34 +334,64 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
           <p className={`text-sm ${theme.textSecondary}`}>{t('menuEmptyPool')}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {pool.map((e) => renderChip(e.id, e.recipeId))}
+            {pool.map((e) => renderChip(e))}
           </div>
         )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {days.map((entries, idx) => (
-          <div
-            key={idx}
-            className={`${theme.card} p-3 min-h-[96px]`}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={dropOn(idx)}
-            onClick={() => {
-              if (pickedId) moveToDay(pickedId, idx);
-            }}
-          >
-            <p className={`text-sm font-semibold ${theme.textPrimary} mb-2`}>
-              {t('menuDay')} {idx + 1}
-            </p>
-            {entries.length === 0 ? (
-              <p className={`text-xs ${theme.textSecondary}`}>{t('menuEmptyDay')}</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {entries.map((e) => renderChip(e.id, e.recipeId))}
-              </div>
-            )}
-          </div>
-        ))}
+        {Array.from({ length: mealPlan.dayCount }, (_, idx) => {
+          const entries = mealPlan.entries.filter((e) => e.dayIndex === idx);
+          const macros = dayMacros(entries);
+          const dateIso = addDaysISO(weekStart, idx);
+          return (
+            <div
+              key={idx}
+              className={`${theme.card} p-3 min-h-[96px]`}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={dropOn(idx, 'dinner')}
+              onClick={() => {
+                if (pickedId) moveToDay(pickedId, idx, 'dinner');
+              }}
+            >
+              <p className={`text-sm font-semibold ${theme.textPrimary}`}>
+                {t(WEEKDAYS[idx])} {formatDayMonth(dateIso, LOCALES[language] || 'ru-RU')}
+              </p>
+              {macros && (
+                <p className={`text-xs ${theme.textSecondary} mb-2`}>
+                  {Math.round(macros.calories)} {t('kcal')}
+                  {macros.protein ? ` · ${t('proteinShort')} ${Math.round(macros.protein)}` : ''}
+                  {macros.fat ? ` · ${t('fatShort')} ${Math.round(macros.fat)}` : ''}
+                  {macros.carbs ? ` · ${t('carbsShort')} ${Math.round(macros.carbs)}` : ''}
+                </p>
+              )}
+              {SLOTS.map((slot) => {
+                const slotEntries = entries.filter((e) => (e.mealSlot || 'dinner') === slot);
+                return (
+                  <div
+                    key={slot}
+                    className="mt-2"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={dropOn(idx, slot)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (pickedId) moveToDay(pickedId, idx, slot);
+                    }}
+                  >
+                    <p className={`text-xs font-medium ${theme.textSecondary} mb-1`}>{t(SLOT_KEYS[slot])}</p>
+                    {slotEntries.length === 0 ? (
+                      <p className={`text-xs ${theme.textSecondary} opacity-50`}>·</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {slotEntries.map((e) => renderChip(e))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
 
       <button

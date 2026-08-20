@@ -78,6 +78,17 @@ export interface ShoppingItem {
   checked: boolean;
 }
 
+export interface PantryItem {
+  id: string;
+  name: string;
+  quantity?: number;
+  unit?: string;
+}
+
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export type RecipeSort = 'newest' | 'lastCooked' | 'title';
+
 export interface GroceryStore {
   id: string;
   name: string;
@@ -108,11 +119,15 @@ export interface MealPlanEntry {
   recipeId: string;
   dayIndex: number | null;
   sortOrder: number;
+  servings?: number;
+  mealSlot?: MealSlot | null;
 }
 
 export interface MealPlan {
   dayCount: number;
+  weekStart: string;
   entries: MealPlanEntry[];
+  updatedAt?: string;
 }
 
 export type ViewMode = 'recipes' | 'shopping' | 'menu' | 'utilities' | 'add';

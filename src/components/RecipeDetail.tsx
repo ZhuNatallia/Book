@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
 import { ShelfPicker } from './ShelfPicker';
 import { isSampleRecipeId } from '../lib/recipeDb';
-import { X, Minus, Plus, Play, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus } from 'lucide-react';
+import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2 } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -26,6 +26,18 @@ function videoSourceLabel(url?: string) {
 
 // Units are stored in canonical form and rendered from the dictionary of the active language
 const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+
+const SPEECH_LOCALES: Record<string, string> = {
+	ru: 'ru-RU',
+	en: 'en-US',
+	de: 'de-DE',
+	uk: 'uk-UA',
+	pl: 'pl-PL',
+	it: 'it-IT',
+	es: 'es-ES',
+	fr: 'fr-FR',
+	kk: 'kk-KZ',
+};
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;
@@ -64,9 +76,84 @@ export function RecipeDetail({
 	const [copiedToBook, setCopiedToBook] = useState(false);
 	const isPersonal = !readOnly && !isSampleRecipeId(recipe.recipe.id);
 	const [notes, setNotes] = useState(recipe.recipe.notes || '');
+	const [currentStepIndex, setCurrentStepIndex] = useState(0);
+	const [isSpeaking, setIsSpeaking] = useState(false);
+	const [timer, setTimer] = useState<{ stepId: string; remaining: number; running: boolean } | null>(null);
+	const beepCtx = useRef<AudioContext | null>(null);
+
+	const playTimerDone = async (title: string) => {
+		try {
+			navigator.vibrate?.(200);
+		} catch {
+			/* ignore */
+		}
+		try {
+			const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+			if (!beepCtx.current) beepCtx.current = new Ctx();
+			const ctx = beepCtx.current;
+			const osc = ctx.createOscillator();
+			const gain = ctx.createGain();
+			osc.frequency.value = 880;
+			gain.gain.value = 0.08;
+			osc.connect(gain);
+			gain.connect(ctx.destination);
+			osc.start();
+			osc.stop(ctx.currentTime + 0.4);
+		} catch {
+			/* ignore */
+		}
+		if ('Notification' in window) {
+			if (Notification.permission === 'default') {
+				try {
+					await Notification.requestPermission();
+				} catch {
+					/* ignore */
+				}
+			}
+			if (Notification.permission === 'granted') {
+				try {
+					new Notification(t('timerDone'), { body: title });
+				} catch {
+					/* ignore */
+				}
+			}
+		}
+	};
+
+	useEffect(() => {
+		return () => {
+			if ('speechSynthesis' in window) speechSynthesis.cancel();
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!timer?.running) return;
+		const id = window.setInterval(() => {
+			setTimer((prev) => {
+				if (!prev || !prev.running) return prev;
+				if (prev.remaining <= 1) {
+					window.setTimeout(() => {
+						const step = recipe.steps.find((s) => s.id === prev.stepId);
+						const text =
+							step?.translations.find((tr) => tr.language === language)?.instruction ||
+							step?.translations[0]?.instruction ||
+							t('timerDone');
+						void playTimerDone(text);
+					}, 0);
+					return { ...prev, remaining: 0, running: false };
+				}
+				return { ...prev, remaining: prev.remaining - 1 };
+			});
+		}, 1000);
+		return () => window.clearInterval(id);
+	}, [timer?.running, timer?.stepId, language, recipe.steps, t]);
 
 	useEffect(() => {
 		setNotes(recipe.recipe.notes || '');
+		setCurrentStepIndex(0);
+		setTimer(null);
+		if ('speechSynthesis' in window) speechSynthesis.cancel();
+		setIsSpeaking(false);
 	}, [recipe.recipe.id, recipe.recipe.notes]);
 	const formatUnit = (unit: string) => {
 		if (!unit) return '';
@@ -77,7 +164,14 @@ export function RecipeDetail({
 
 	const translation =
 		recipe.translations.find((tr) => tr.language === language) ||
-		recipe.translations.find((tr) => tr.language === 'ru')!;
+		recipe.translations.find((tr) => tr.language === 'ru') ||
+		recipe.translations[0] || {
+			id: '',
+			recipeId: recipe.recipe.id,
+			language,
+			title: '',
+			description: undefined as string | undefined,
+		};
 
 	const sortedSteps = [...recipe.steps].sort(
 		(a, b) => a.stepOrder - b.stepOrder,
@@ -113,6 +207,64 @@ export function RecipeDetail({
 	);
 	const watchLabelKey = videoSourceLabel(recipe.recipe.sourceUrl);
 	const showWatchInsteadOfSteps = realSteps.length === 0 && !!watchLabelKey;
+
+	useEffect(() => {
+		const cooking = activeTab === 'steps' && !showWatchInsteadOfSteps;
+		const keepAwake = cooking || !!timer?.running;
+		if (!cooking) {
+			if ('speechSynthesis' in window) speechSynthesis.cancel();
+			setIsSpeaking(false);
+		}
+		if (!keepAwake || !('wakeLock' in navigator)) return;
+
+		let released = false;
+		let sentinel: { release: () => Promise<void> } | null = null;
+
+		const request = async () => {
+			try {
+				sentinel = await navigator.wakeLock.request('screen');
+			} catch {
+				sentinel = null;
+			}
+		};
+		void request();
+
+		const onVisibility = () => {
+			if (document.visibilityState === 'visible' && !released) void request();
+		};
+		document.addEventListener('visibilitychange', onVisibility);
+
+		return () => {
+			released = true;
+			document.removeEventListener('visibilitychange', onVisibility);
+			void sentinel?.release();
+		};
+	}, [activeTab, showWatchInsteadOfSteps, timer?.running]);
+
+	const stopReading = () => {
+		if ('speechSynthesis' in window) speechSynthesis.cancel();
+		setIsSpeaking(false);
+	};
+
+	const readCurrentStep = () => {
+		if (!('speechSynthesis' in window) || realSteps.length === 0) return;
+		const idx = Math.min(currentStepIndex, realSteps.length - 1);
+		const text = getStepInstruction(realSteps[idx]).trim();
+		if (!text) return;
+		speechSynthesis.cancel();
+		const utterance = new SpeechSynthesisUtterance(text);
+		utterance.lang = SPEECH_LOCALES[language] || 'ru-RU';
+		utterance.rate = 0.9;
+		const prefix = language.toLowerCase();
+		const voice = speechSynthesis
+			.getVoices()
+			.find((v) => v.lang.toLowerCase().startsWith(prefix));
+		if (voice) utterance.voice = voice;
+		utterance.onend = () => setIsSpeaking(false);
+		utterance.onerror = () => setIsSpeaking(false);
+		setIsSpeaking(true);
+		speechSynthesis.speak(utterance);
+	};
 
 	const toggleIngredientCheck = (id: string) => {
 		const newSet = new Set(checkedIngredients);
@@ -466,10 +618,28 @@ export function RecipeDetail({
 
 					{activeTab === 'steps' && !showWatchInsteadOfSteps && (
 						<div className='space-y-4'>
+							{realSteps.length > 0 && (
+								<button
+									type='button'
+									onClick={isSpeaking ? stopReading : readCurrentStep}
+									className={`w-full py-3 rounded-2xl ${theme.accentGradient} text-white font-medium flex items-center justify-center gap-2`}
+								>
+									<Volume2 className='w-5 h-5' />
+									{isSpeaking
+										? t('stopReading')
+										: `${t('readStep')} ${Math.min(currentStepIndex, realSteps.length - 1) + 1}`}
+								</button>
+							)}
 							{realSteps.map((step, idx) => (
-								<div
+								<button
+									type='button'
 									key={step.id}
-									className={`flex gap-4 items-start p-4 ${theme.bgSecondary} rounded-xl`}
+									onClick={() => setCurrentStepIndex(idx)}
+									className={`w-full text-left flex gap-4 items-start p-4 rounded-2xl ${
+										idx === currentStepIndex
+											? `${theme.tabActiveBg} border ${theme.borderAccent}`
+											: theme.bgSecondary
+									}`}
 								>
 									<div
 										className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${theme.btnPrimary}`}
@@ -482,14 +652,59 @@ export function RecipeDetail({
 										</p>
 										{step.timerMinutes && (
 											<div
-												className={`flex items-center gap-1 mt-2 ${theme.textAccent} text-sm`}
+												className={`flex items-center gap-2 mt-2 ${theme.textAccent} text-sm`}
+												onClick={(e) => e.stopPropagation()}
 											>
 												<Clock className='w-4 h-4' />
-												{step.timerMinutes} {t('minutes')}
+												{timer?.stepId === step.id
+													? `${Math.floor(timer.remaining / 60)}:${String(timer.remaining % 60).padStart(2, '0')}`
+													: `${step.timerMinutes} ${t('minutes')}`}
+												<button
+													type="button"
+													className="p-1 rounded-lg hover:bg-white/50"
+													onClick={() => {
+														if (timer?.stepId === step.id && timer.running) {
+															setTimer({ ...timer, running: false });
+															return;
+														}
+														if (timer?.stepId === step.id && !timer.running && timer.remaining > 0) {
+															setTimer({ ...timer, running: true });
+															return;
+														}
+														setTimer({
+															stepId: step.id,
+															remaining: (step.timerMinutes || 0) * 60,
+															running: true,
+														});
+													}}
+													title={timer?.stepId === step.id && timer.running ? t('timerPause') : t('timerResume')}
+												>
+													{timer?.stepId === step.id && timer.running ? (
+														<Pause className="w-4 h-4" />
+													) : (
+														<Play className="w-4 h-4" />
+													)}
+												</button>
+												{timer?.stepId === step.id && (
+													<button
+														type="button"
+														className="p-1 rounded-lg hover:bg-white/50"
+														onClick={() =>
+															setTimer({
+																stepId: step.id,
+																remaining: (step.timerMinutes || 0) * 60,
+																running: false,
+															})
+														}
+														title={t('timerReset')}
+													>
+														<RotateCcw className="w-4 h-4" />
+													</button>
+												)}
 											</div>
 										)}
 									</div>
-								</div>
+								</button>
 							))}
 						</div>
 					)}

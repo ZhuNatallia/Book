@@ -144,6 +144,16 @@ export function mapRowToFullRecipe(row: RecipeRow): FullRecipe {
   };
 }
 
+export async function fetchRecipeUpdatedAt(recipeId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('updated_at')
+    .eq('id', recipeId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.updated_at as string | undefined) ?? null;
+}
+
 export async function fetchUserRecipes(userId: string): Promise<FullRecipe[]> {
   const { data, error } = await supabase
     .from('recipes')

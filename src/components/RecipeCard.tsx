@@ -341,7 +341,7 @@ export function CategoryFilter({
 					<button
 						key={cat.id}
 						onClick={() => onSelectCategory(cat.id)}
-						className={`px-4 py-2.5 text-base font-medium whitespace-nowrap capitalize flex items-center justify-center ${
+						className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap capitalize flex items-center justify-center ${
 							selectedCategory === cat.id ? theme.chipActive : theme.chip
 						}`}
 					>

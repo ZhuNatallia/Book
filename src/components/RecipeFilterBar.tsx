@@ -4,6 +4,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { CategoryFilter } from './RecipeCard';
 import { ShelfPicker } from './ShelfPicker';
+import { RecipeSort } from '../types';
 
 export type RecipeStatusFilter = 'all' | 'want_to_cook' | 'cooked_liked';
 
@@ -19,6 +20,8 @@ interface RecipeFilterBarProps {
   extraTags?: string[];
   selectedTags?: string[];
   onSelectTags?: (tags: string[]) => void;
+  sortBy?: RecipeSort;
+  onSortChange?: (sort: RecipeSort) => void;
 }
 
 export function RecipeFilterBar({
@@ -33,6 +36,8 @@ export function RecipeFilterBar({
   extraTags = [],
   selectedTags = [],
   onSelectTags,
+  sortBy = 'newest',
+  onSortChange,
 }: RecipeFilterBarProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
@@ -41,6 +46,7 @@ export function RecipeFilterBar({
   const [draftStatus, setDraftStatus] = useState<RecipeStatusFilter>(statusFilter);
   const [draftSearch, setDraftSearch] = useState(searchQuery);
   const [draftTags, setDraftTags] = useState<string[]>(selectedTags);
+  const [draftSort, setDraftSort] = useState<RecipeSort>(sortBy);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const showSearch = !!onSearchChange;
@@ -48,13 +54,15 @@ export function RecipeFilterBar({
     selectedCategory !== 'all' ||
     statusFilter !== 'all' ||
     searchQuery.trim().length > 0 ||
-    selectedTags.length > 0;
+    selectedTags.length > 0 ||
+    sortBy !== 'newest';
 
   const openPanel = () => {
     setDraftCategory(selectedCategory);
     setDraftStatus(statusFilter);
     setDraftSearch(searchQuery);
     setDraftTags(selectedTags);
+    setDraftSort(sortBy);
     setOpen(true);
   };
 
@@ -65,6 +73,7 @@ export function RecipeFilterBar({
     onSelectStatus(draftStatus);
     onSearchChange?.(draftSearch.trim());
     onSelectTags?.(draftTags);
+    onSortChange?.(draftSort);
     setOpen(false);
   };
 
@@ -73,10 +82,12 @@ export function RecipeFilterBar({
     onSelectStatus('all');
     onSearchChange?.('');
     onSelectTags?.([]);
+    onSortChange?.('newest');
     setDraftCategory('all');
     setDraftStatus('all');
     setDraftSearch('');
     setDraftTags([]);
+    setDraftSort('newest');
     setOpen(false);
   };
 
@@ -123,31 +134,21 @@ export function RecipeFilterBar({
       </div>
 
       {open && (
-        <div className={`mt-3 p-3 ${theme.card}`}>
-          {showSearch && (
-            <div className="relative mb-3">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={draftSearch}
-                onChange={(e) => setDraftSearch(e.target.value)}
-                placeholder={t('searchPlaceholder')}
-                className={`w-full pl-12 pr-4 py-3 text-base ${theme.input}`}
-              />
-            </div>
-          )}
+        <div className={`mt-3 p-3 ${theme.card} divide-y divide-[var(--stroke)]`}>
+          <div className="pb-5">
+            <p className={`px-1 pb-2 text-sm font-semibold ${theme.textPrimary}`}>
+              {t('recipeCategories')}
+            </p>
+            <CategoryFilter
+              selectedCategory={draftCategory}
+              onSelectCategory={setDraftCategory}
+              className="w-full"
+            />
+          </div>
 
-          <p className={`px-1 pb-2 text-base font-semibold ${theme.textPrimary}`}>
-            {t('recipeCategories')}
-          </p>
-          <CategoryFilter
-            selectedCategory={draftCategory}
-            onSelectCategory={setDraftCategory}
-            className="w-full"
-          />
           {showStatus && (
-            <>
-              <p className={`px-1 pt-3 pb-2 text-base font-semibold ${theme.textPrimary}`}>
+            <div className="py-5">
+              <p className={`px-1 pb-2 text-sm font-semibold ${theme.textPrimary}`}>
                 {t('filterStatus')}
               </p>
               <div className="flex flex-wrap gap-2 justify-center">
@@ -156,7 +157,7 @@ export function RecipeFilterBar({
                     key={status.id}
                     type="button"
                     onClick={() => setDraftStatus(status.id)}
-                    className={`px-4 py-2.5 text-base font-medium whitespace-nowrap ${
+                    className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap ${
                       draftStatus === status.id ? theme.chipActive : theme.chip
                     }`}
                   >
@@ -164,44 +165,90 @@ export function RecipeFilterBar({
                   </button>
                 ))}
               </div>
-            </>
+            </div>
           )}
 
           {onSelectTags && (
-            <>
-              <p className={`px-1 pt-3 pb-2 text-base font-semibold ${theme.textPrimary}`}>
+            <div className="py-5">
+              <p className={`px-1 pb-2 text-sm font-semibold ${theme.textPrimary}`}>
                 {t('filterShelves')}
               </p>
               <ShelfPicker tags={draftTags} onChange={setDraftTags} extraTags={extraTags} />
-            </>
+            </div>
+          )}
+
+          {showSearch && (
+            <div className="py-5">
+              <p className={`px-1 pb-2 text-sm font-semibold ${theme.textPrimary}`}>
+                {t('searchPlaceholder')}
+              </p>
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  value={draftSearch}
+                  onChange={(e) => setDraftSearch(e.target.value)}
+                  placeholder={t('searchPlaceholder')}
+                  className={`w-full pl-12 pr-4 py-3 text-sm ${theme.input}`}
+                />
+              </div>
+            </div>
+          )}
+
+          {onSortChange && (
+            <div className="py-5">
+              <p className={`px-1 pb-2 text-sm font-semibold ${theme.textPrimary}`}>
+                {t('sortBy')}
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {([
+                  ['newest', 'sortNewest'],
+                  ['lastCooked', 'sortLastCooked'],
+                  ['title', 'sortTitle'],
+                ] as const).map(([id, key]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setDraftSort(id)}
+                    className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap ${
+                      draftSort === id ? theme.chipActive : theme.chip
+                    }`}
+                  >
+                    {t(key)}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {onFridgeSearch && (
-            <button
-              type="button"
-              onClick={() => {
-                closePanel();
-                onFridgeSearch();
-              }}
-              className={`mt-4 w-full flex items-center justify-center gap-2 px-4 py-3 text-base font-medium ${theme.chip}`}
-            >
-              <Refrigerator className="w-5 h-5" />
-              {t('fridgeSearch')}
-            </button>
+            <div className="pt-5">
+              <button
+                type="button"
+                onClick={() => {
+                  closePanel();
+                  onFridgeSearch();
+                }}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium ${theme.chip}`}
+              >
+                <Refrigerator className="w-5 h-5" />
+                {t('fridgeSearch')}
+              </button>
+            </div>
           )}
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="pt-5 grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={resetFilters}
-              className={`py-3 text-base font-semibold ${theme.btnSoft}`}
+              className={`py-3 text-sm font-semibold ${theme.btnSoft}`}
             >
               {t('resetFilters')}
             </button>
             <button
               type="button"
               onClick={applyFilters}
-              className={`py-3 text-base font-semibold ${theme.btnPrimary}`}
+              className={`py-3 text-sm font-semibold ${theme.btnPrimary}`}
             >
               {t('applyFilter')}
             </button>

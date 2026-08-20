@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { ShoppingItem } from '../types';
@@ -12,8 +12,8 @@ import {
 	Share2,
 	Check,
 } from 'lucide-react';
+import { AISLE_IDS, AISLE_I18N_KEYS, aisleForName } from '../data/aisles';
 
-// Web Speech API needs a BCP 47 tag, not the app's bare language code
 const SPEECH_LOCALES: Record<string, string> = {
 	ru: 'ru-RU',
 	en: 'en-US',
@@ -25,6 +25,8 @@ const SPEECH_LOCALES: Record<string, string> = {
 	fr: 'fr-FR',
 };
 
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+
 interface ShoppingListViewProps {
 	items: ShoppingItem[];
 	onToggle: (id: string) => void;
@@ -33,9 +35,6 @@ interface ShoppingListViewProps {
 	onAdd: (name: string) => void;
 }
 
-// Парсит строку из голосового ввода в список отдельных продуктов.
-// Если есть явные разделители (запятая, "и", "+", etc.) — бьёт по ним.
-// Если разделителей нет — каждое слово считается отдельным продуктом.
 function parseVoiceText(text: string): string[] {
 	const hasExplicitSeparator =
 		/[;,]|\s+и\s+|\s+and\s+|\+|\s+плюс\s+|\s+plus\s+/.test(text);
@@ -47,11 +46,7 @@ function parseVoiceText(text: string): string[] {
 			.filter((s) => s.length > 0);
 	}
 
-	// Нет разделителей — каждое слово = отдельный продукт
-	return text
-		.split(/\s+/)
-		.map((s) => s.trim())
-		.filter((s) => s.length > 0);
+	return [text.trim()].filter(Boolean);
 }
 
 export function ShoppingListView({
@@ -66,6 +61,18 @@ export function ShoppingListView({
 	const [newItem, setNewItem] = useState('');
 	const [isRecording, setIsRecording] = useState(false);
 	const [copied, setCopied] = useState(false);
+
+	const grouped = useMemo(() => {
+		const buckets = new Map<string, ShoppingItem[]>();
+		for (const id of AISLE_IDS) buckets.set(id, []);
+		for (const item of items) {
+			const aisle = aisleForName(item.ingredientName);
+			buckets.get(aisle)?.push(item);
+		}
+		return AISLE_IDS.map((id) => ({ id, items: buckets.get(id) ?? [] })).filter(
+			(group) => group.items.length > 0,
+		);
+	}, [items]);
 
 	const handleVoiceInput = () => {
 		const SpeechRecognition =
@@ -87,9 +94,7 @@ export function ShoppingListView({
 
 		recognition.onresult = (event: any) => {
 			const transcript = event.results[0][0].transcript.trim();
-			const parsed = parseVoiceText(transcript);
-			// Каждый продукт добавляется отдельным вызовом — App создаёт уникальный ID
-			parsed.forEach((product) => onAdd(product));
+			parseVoiceText(transcript).forEach((product) => onAdd(product));
 		};
 
 		recognition.onerror = (event: any) => {
@@ -100,15 +105,34 @@ export function ShoppingListView({
 		recognition.start();
 	};
 
+	const formatUnit = (unit?: string) => {
+		if (!unit) return '';
+		const u = unit.toLowerCase().trim();
+		return UNIT_KEYS.includes(u) ? t(u) : unit;
+	};
+
+	const itemLabel = (item: ShoppingItem) => {
+		const qty =
+			item.quantity != null && item.quantity !== 0
+				? ` — ${item.quantity}${item.unit ? ` ${formatUnit(item.unit)}` : ''}`
+				: '';
+		return `${item.ingredientName}${qty}`;
+	};
+
 	const generateExportText = () => {
 		const header = `🛒 ${t('shoppingList')}:`;
-		const lines = items.map((item, i) => `${i + 1}. ${item.ingredientName}`);
-		return `${header}\n\n${lines.join('\n')}`;
+		const lines = grouped.flatMap((group) => [
+			`${t(AISLE_I18N_KEYS[group.id])}:`,
+			...group.items.map((item, i) => `${i + 1}. ${itemLabel(item)}`),
+			'',
+		]);
+		return `${header}\n\n${lines.join('\n')}`.trim();
 	};
+
+	let runningIndex = 0;
 
 	return (
 		<div className='max-w-md mx-auto p-4 space-y-4'>
-			{/* Поле ввода */}
 			<div className={`${theme.card} p-4`}>
 				<div className='flex items-center gap-2'>
 					<input
@@ -148,7 +172,6 @@ export function ShoppingListView({
 				</div>
 			</div>
 
-			{/* Кнопки шаринга */}
 			{items.length > 0 && (
 				<div className='space-y-2'>
 					<button
@@ -215,43 +238,53 @@ export function ShoppingListView({
 				</div>
 			)}
 
-			{/* Нумерованный список */}
-			<ol className='space-y-2'>
-				{items.map((item, index) => (
-					<li
-						key={item.id}
-						className={`flex items-center justify-between px-4 py-3 ${theme.card} transition-all ${
-							item.checked ? 'bg-green-50 border-green-200' : ''
-						}`}
-					>
-						<div className='flex items-center gap-3 flex-1 min-w-0'>
-							<button
-								onClick={() => onToggle(item.id)}
-								className={`w-8 h-8 shrink-0 rounded-md border-2 flex items-center justify-center font-bold text-sm transition-all ${
-									item.checked
-										? 'bg-green-500 border-green-500 text-white'
-										: 'border-gray-300 text-gray-500 hover:border-green-400 hover:text-green-500'
-								}`}
-							>
-								{item.checked ? <Check className='w-4 h-4' /> : index + 1}
-							</button>
-							<span
-								className={`truncate text-base ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
-							>
-								{item.ingredientName}
-							</span>
-						</div>
-						<div className='flex items-center gap-1 shrink-0 ml-2'>
-							<button
-								onClick={() => onRemove(item.id)}
-								className='p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors'
-							>
-								<Trash2 className='w-4 h-4' />
-							</button>
-						</div>
-					</li>
-				))}
-			</ol>
+			{grouped.map((group) => (
+				<div key={group.id} className="space-y-2">
+					<p className={`text-sm font-semibold px-1 ${theme.textSecondary}`}>
+						{t(AISLE_I18N_KEYS[group.id])}
+					</p>
+					<ol className='space-y-2'>
+						{group.items.map((item) => {
+							runningIndex += 1;
+							const index = runningIndex;
+							return (
+								<li
+									key={item.id}
+									className={`flex items-center justify-between px-4 py-3 ${theme.card} transition-all ${
+										item.checked ? 'bg-green-50 border-green-200' : ''
+									}`}
+								>
+									<div className='flex items-center gap-3 flex-1 min-w-0'>
+										<button
+											onClick={() => onToggle(item.id)}
+											className={`w-8 h-8 shrink-0 rounded-md border-2 flex items-center justify-center font-bold text-sm transition-all ${
+												item.checked
+													? 'bg-green-500 border-green-500 text-white'
+													: 'border-gray-300 text-gray-500 hover:border-green-400 hover:text-green-500'
+											}`}
+										>
+											{item.checked ? <Check className='w-4 h-4' /> : index}
+										</button>
+										<span
+											className={`truncate text-base ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
+										>
+											{itemLabel(item)}
+										</span>
+									</div>
+									<div className='flex items-center gap-1 shrink-0 ml-2'>
+										<button
+											onClick={() => onRemove(item.id)}
+											className='p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors'
+										>
+											<Trash2 className='w-4 h-4' />
+										</button>
+									</div>
+								</li>
+							);
+						})}
+					</ol>
+				</div>
+			))}
 
 			{items.length === 0 && (
 				<div className={`text-center py-12 ${theme.textSecondary}`}>

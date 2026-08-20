@@ -63,7 +63,7 @@ export function ShelfPicker({ tags, onChange, extraTags = [] }: ShelfPickerProps
             }
           }}
           placeholder={t('addShelfPlaceholder')}
-          className={`flex-1 px-3 py-2 text-base ${theme.input}`}
+          className={`flex-1 px-3 py-2 text-sm ${theme.input}`}
         />
         <button type="button" onClick={addCustom} className={`shrink-0 px-3 py-2 text-sm font-medium ${theme.btnSoft}`}>
           {t('addShelf')}

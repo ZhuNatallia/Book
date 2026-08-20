@@ -8,6 +8,7 @@ import { ThemedSelect } from './ThemedSelect';
 import { ShelfPicker } from './ShelfPicker';
 import { isSampleRecipeId } from '../lib/recipeDb';
 import { useOnline } from '../lib/online';
+import { normalizeSourceUrl } from '../lib/urlNorm';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle } from 'lucide-react';
 
 interface AddRecipeModalProps {
@@ -16,6 +17,8 @@ interface AddRecipeModalProps {
   onSave: (recipe: FullRecipe) => void;
   editingRecipe?: FullRecipe | null;
   extraTags?: string[];
+  existingRecipes?: FullRecipe[];
+  onOpenExisting?: (recipe: FullRecipe) => void;
 }
 
 interface ParsedRecipe {
@@ -163,7 +166,15 @@ const IMPORT_NOTE_KEYS: Record<string, string> = {
   social_truncated: 'noteSocialTruncated',
 };
 
-export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe, extraTags = [] }: AddRecipeModalProps) {
+export function AddRecipeModal({
+  isOpen,
+  onClose,
+  onSave,
+  editingRecipe,
+  extraTags = [],
+  existingRecipes = [],
+  onOpenExisting,
+}: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
   const online = useOnline();
@@ -176,6 +187,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe, extraTa
   const [loadingPlatform, setLoadingPlatform] = useState('');
   const [importUrl, setImportUrl] = useState('');
   const [importingStep, setImportingStep] = useState<number>(0);
+  const [duplicateRecipe, setDuplicateRecipe] = useState<FullRecipe | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState('');
@@ -285,19 +297,33 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe, extraTa
     }
   };
 
-  const handleImportUrl = async () => {
+  const handleImportUrl = async (ignoreDuplicate = false) => {
     if (!importUrl.trim()) return;
     if (!navigator.onLine) {
       setParseError(t('offlineHint'));
       return;
     }
+    const url = importUrl.trim();
+    if (!ignoreDuplicate) {
+      const normalized = normalizeSourceUrl(url);
+      const found = existingRecipes.find(
+        (r) =>
+          r.recipe.id !== editingRecipe?.recipe.id &&
+          r.recipe.sourceUrl &&
+          normalizeSourceUrl(r.recipe.sourceUrl) === normalized,
+      );
+      if (found) {
+        setDuplicateRecipe(found);
+        return;
+      }
+    }
+    setDuplicateRecipe(null);
     // Clear stale state from a previous import
     setParseResult(null);
     setParseError(null);
     setImageUrl(undefined);
 
     // Detect platform for a friendlier loading label
-    const url = importUrl.trim();
     const platform = /youtube|youtu\.be/i.test(url) ? 'YouTube'
       : /instagram/i.test(url) ? 'Instagram'
       : /tiktok/i.test(url) ? 'TikTok'
@@ -682,10 +708,31 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe, extraTa
                   className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-base disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
                   placeholder={t('importUrlPlaceholder')}
                 />
-                <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing || !online} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
+                <button onClick={() => handleImportUrl(false)} disabled={!importUrl.trim() || isParsing || !online} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
                   <Download className="w-5 h-5" />
                   {t('importAction')}
                 </button>
+                {duplicateRecipe && (
+                  <div className={`mt-3 p-3 rounded-xl ${theme.bgSecondary}`}>
+                    <p className={`text-sm ${theme.textPrimary} mb-2`}>{t('recipeAlreadyExists')}</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className={`flex-1 py-2 text-sm font-medium ${theme.btnPrimary}`}
+                        onClick={() => onOpenExisting?.(duplicateRecipe)}
+                      >
+                        {t('openExisting')}
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex-1 py-2 text-sm font-medium ${theme.chip}`}
+                        onClick={() => void handleImportUrl(true)}
+                      >
+                        {t('continueImport')}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {!online && (
                   <p className={`mt-2 text-sm ${theme.textSecondary}`}>{t('offlineHint')}</p>
                 )}

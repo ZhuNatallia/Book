@@ -4,6 +4,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { fetchFriendVisibleRecipes } from '../lib/recipeDb';
+import { recipeMatchesQuery } from '../lib/recipeSearch';
 import { RecipeCard } from './RecipeCard';
 import { RecipeFilterBar, RecipeStatusFilter } from './RecipeFilterBar';
 import { AvatarBox } from './ProfileSettings';
@@ -38,6 +39,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [query, setQuery] = useState('');
   const [friendSearch, setFriendSearch] = useState('');
+  const [friendRecipeSearch, setFriendRecipeSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -74,9 +76,10 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
     return friendRecipes.filter((r) => {
       if (friendCategory !== 'all' && r.recipe.category !== friendCategory) return false;
       if (friendStatus !== 'all' && r.recipe.status !== friendStatus) return false;
+      if (friendRecipeSearch.trim() && !recipeMatchesQuery(r, friendRecipeSearch)) return false;
       return true;
     });
-  }, [friendRecipes, friendCategory, friendStatus]);
+  }, [friendRecipes, friendCategory, friendStatus, friendRecipeSearch]);
 
   const loadFriends = useCallback(async () => {
     const { data: rows, error: friendError } = await supabase
@@ -271,6 +274,8 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                 onSelectCategory={setFriendCategory}
                 statusFilter={friendStatus}
                 onSelectStatus={setFriendStatus}
+                searchQuery={friendRecipeSearch}
+                onSearchChange={setFriendRecipeSearch}
               />
             </div>
             {filteredFriendRecipes.length > 0 ? (
