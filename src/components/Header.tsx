@@ -2,16 +2,34 @@ import { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
-import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Search } from 'lucide-react';
+import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User, CalendarDays } from 'lucide-react';
+import { ProfileSettings } from './ProfileSettings';
+
+export type BottomNavView = 'recipes' | 'shopping' | 'menu' | 'converter' | 'friends';
 
 interface HeaderProps {
   onAddRecipe: () => void;
   onSignOut: () => void;
+  onGoHome: () => void;
+  compact?: boolean;
+  userId: string;
+  email?: string;
+  online?: boolean;
+  syncing?: boolean;
 }
 
-type SettingsView = 'main' | 'language' | 'theme';
+type SettingsView = 'main' | 'language' | 'theme' | 'profile';
 
-export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
+export function Header({
+  onAddRecipe,
+  onSignOut,
+  onGoHome,
+  compact = false,
+  userId,
+  email,
+  online = true,
+  syncing = false,
+}: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
@@ -20,7 +38,8 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (dropdownRef.current && !dropdownRef.current.contains(target)) {
         setShowSettings(false);
         setSettingsView('main');
       }
@@ -33,14 +52,22 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
     { code: 'ru', flag: '🇷🇺', label: 'Русский' },
     { code: 'en', flag: '🇬🇧', label: 'English' },
     { code: 'de', flag: '🇩🇪', label: 'Deutsch' },
+    { code: 'uk', flag: '🇺🇦', label: 'Українська' },
+    { code: 'pl', flag: '🇵🇱', label: 'Polski' },
+    { code: 'it', flag: '🇮🇹', label: 'Italiano' },
+    { code: 'es', flag: '🇪🇸', label: 'Español' },
+    { code: 'fr', flag: '🇫🇷', label: 'Français' },
+    { code: 'kk', flag: '🇰🇿', label: 'Қазақша' },
   ];
 
+  const currentLanguage = languages.find((l) => l.code === language) ?? languages[0];
+
   const themeOptions: { id: ThemeId; name: string; preview: string }[] = [
-    { id: 'light', name: themes.light.name[language], preview: 'from-amber-400 to-rose-400' },
-    { id: 'dark', name: themes.dark.name[language], preview: 'from-amber-500 to-orange-500' },
-    { id: 'turquoise', name: themes.turquoise.name[language], preview: 'from-teal-400 to-cyan-400' },
-    { id: 'pumpkin', name: themes.pumpkin.name[language], preview: 'from-orange-400 to-amber-400' },
-    { id: 'lavender', name: themes.lavender.name[language], preview: 'from-violet-400 to-purple-400' },
+    { id: 'light', name: themes.light.name[language], preview: 'from-[#ff9d6a] to-[#ffc38a]' },
+    { id: 'dark', name: themes.dark.name[language], preview: 'from-[#00e5ff] to-[#c026d3]' },
+    { id: 'turquoise', name: themes.turquoise.name[language], preview: 'from-[#ff9aa2] to-[#b5ead7]' },
+    { id: 'pumpkin', name: themes.pumpkin.name[language], preview: 'from-[#e8b89a] to-[#c5b4e3]' },
+    { id: 'lavender', name: themes.lavender.name[language], preview: 'from-[#c5b4e3] to-[#a78bfa]' },
   ];
 
   const closeSettings = () => {
@@ -49,22 +76,33 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
   };
 
   return (
-    <header className={`sticky top-0 z-50 ${theme.headerBg} backdrop-blur-md border-b ${theme.headerBorder} shadow-sm`}>
-      <div className="max-w-7xl mx-auto px-4 py-4">
+    <header className={`sticky top-0 z-50 ${theme.headerBg} backdrop-blur-md`}>
+      <div className={`relative max-w-7xl mx-auto px-4 ${compact ? 'py-2' : 'py-4'}`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 bg-gradient-to-br ${theme.headerLogoGradient} rounded-xl flex items-center justify-center shadow-md`}>
+          <button
+            type="button"
+            onClick={onGoHome}
+            className="flex items-center gap-3 text-left"
+            title={t('recipes')}
+          >
+            <div className={`w-10 h-10 bg-gradient-to-br ${theme.headerLogoGradient} rounded-2xl flex items-center justify-center neu-btn-primary`}>
               <ChefHat className="w-6 h-6 text-white" />
             </div>
-            <h1 className={`text-xl font-bold bg-gradient-to-r ${theme.headerTitleGradient} bg-clip-text text-transparent`}>
+            <h1 className={`text-xl font-bold bg-gradient-to-r ${theme.headerTitleGradient} bg-clip-text text-transparent ${compact ? 'hidden' : ''}`}>
               {t('appName')}
             </h1>
-          </div>
+          </button>
 
           <div className="flex items-center gap-3">
+            {!online && (
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${theme.chip}`}>{t('offline')}</span>
+            )}
+            {online && syncing && (
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${theme.chip}`}>{t('syncing')}</span>
+            )}
             <button
               onClick={onAddRecipe}
-              className={`flex items-center gap-2 bg-gradient-to-r ${theme.headerAddBtn} ${theme.headerAddBtnHover} ${theme.headerText} px-4 py-2 rounded-full shadow-md hover:shadow-lg transition-all duration-200 font-medium`}
+              className={`${theme.btnPrimary} flex items-center gap-2 px-4 py-2 font-medium`}
             >
               <Plus className="w-5 h-5" />
               <span className="hidden sm:inline">{t('addRecipe')}</span>
@@ -76,44 +114,48 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                   setShowSettings(!showSettings);
                   setSettingsView('main');
                 }}
-                className={`p-2.5 rounded-full ${theme.headerLangBg} shadow-sm hover:shadow-md transition-all`}
+                className={`${theme.iconBtn} p-2.5`}
               >
                 <Settings className={`w-5 h-5 ${theme.textAccent}`} />
               </button>
 
               {showSettings && (
-                <div className={`absolute right-0 top-12 w-72 ${theme.bgCard} rounded-2xl shadow-2xl border ${theme.border} overflow-hidden z-50`}>
+                <div className={`absolute right-0 top-12 w-80 max-h-[80vh] overflow-y-auto ${theme.card} z-50`}>
                   {settingsView === 'main' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary}`}>
-                        <p className={`text-sm font-semibold ${theme.textPrimary}`}>
-                          {language === 'ru' ? 'Настройки' : language === 'de' ? 'Einstellungen' : 'Settings'}
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('settingsTitle')}
                         </p>
                       </div>
                       <div className="p-1">
                         <button
-                          onClick={() => setSettingsView('language')}
-                          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} hover:bg-gray-50 transition-colors`}
+                          onClick={() => setSettingsView('profile')}
+                          className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
-                            <span className="text-lg">
-                              {language === 'ru' ? '🇷🇺' : language === 'de' ? '🇩🇪' : '🇬🇧'}
-                            </span>
-                            <span className="text-sm font-medium">
-                              {language === 'ru' ? 'Язык' : language === 'de' ? 'Sprache' : 'Language'}
-                            </span>
+                            <User className={`w-5 h-5 ${theme.textAccent}`} />
+                            <span className="text-base font-medium">{t('yourProfile')}</span>
+                          </div>
+                          <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
+                        </button>
+                        <button
+                          onClick={() => setSettingsView('language')}
+                          className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg">{currentLanguage.flag}</span>
+                            <span className="text-base font-medium">{t('languageLabel')}</span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
                           onClick={() => setSettingsView('theme')}
-                          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} hover:bg-gray-50 transition-colors`}
+                          className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
                             <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${themeOptions.find(t => t.id === themeId)?.preview || 'from-amber-400 to-rose-400'}`} />
-                            <span className="text-sm font-medium">
-                              {language === 'ru' ? 'Палитра' : language === 'de' ? 'Palette' : 'Theme'}
-                            </span>
+                            <span className="text-base font-medium">{t('themeLabel')}</span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
@@ -122,11 +164,23 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-500 hover:bg-rose-50 transition-colors`}
                         >
                           <LogOut className="w-5 h-5" />
-                          <span className="text-sm font-medium">
-                            {language === 'ru' ? 'Выйти' : language === 'de' ? 'Abmelden' : 'Sign Out'}
-                          </span>
+                          <span className="text-base font-medium">{t('authSignOut')}</span>
                         </button>
                       </div>
+                    </>
+                  )}
+
+                  {settingsView === 'profile' && (
+                    <>
+                      <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
+                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                          <ArrowLeft className="w-4 h-4" />
+                        </button>
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('yourProfile')}
+                        </p>
+                      </div>
+                      <ProfileSettings userId={userId} email={email} />
                     </>
                   )}
 
@@ -136,8 +190,8 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                         <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
-                        <p className={`text-sm font-semibold ${theme.textPrimary}`}>
-                          {language === 'ru' ? 'Язык' : language === 'de' ? 'Sprache' : 'Language'}
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('languageLabel')}
                         </p>
                       </div>
                       <div className="p-1">
@@ -156,7 +210,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                           >
                             <div className="flex items-center gap-3">
                               <span className="text-lg">{lang.flag}</span>
-                              <span className="text-sm font-medium">{lang.label}</span>
+                              <span className="text-base font-medium">{lang.label}</span>
                             </div>
                             {language === lang.code && <Check className="w-4 h-4" />}
                           </button>
@@ -171,8 +225,8 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                         <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
-                        <p className={`text-sm font-semibold ${theme.textPrimary}`}>
-                          {language === 'ru' ? 'Палитра' : language === 'de' ? 'Palette' : 'Theme'}
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('themeLabel')}
                         </p>
                       </div>
                       <div className="p-2">
@@ -195,7 +249,7 @@ export function Header({ onAddRecipe, onSignOut }: HeaderProps) {
                                 <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${opt.preview} shadow-md flex items-center justify-center`}>
                                   {isActive && <Check className="w-4 h-4 text-white" />}
                                 </div>
-                                <span className={`text-xs font-medium ${isActive ? theme.textAccent : theme.textSecondary}`}>
+                                <span className={`text-sm font-medium ${isActive ? theme.textAccent : theme.textSecondary}`}>
                                   {opt.name}
                                 </span>
                               </button>
@@ -219,8 +273,8 @@ export function BottomNav({
   activeView,
   onViewChange,
 }: {
-  activeView: 'recipes' | 'shopping' | 'converter' | 'fridge';
-  onViewChange: (view: 'recipes' | 'shopping' | 'converter' | 'fridge') => void;
+  activeView: BottomNavView;
+  onViewChange: (view: BottomNavView) => void;
 }) {
   const { t } = useLanguage();
   const { theme } = useTheme();
@@ -238,14 +292,15 @@ export function BottomNav({
       ),
       label: t('shoppingList'),
     },
+    { id: 'menu' as const, icon: CalendarDays, label: t('menu') },
     { id: 'converter' as const, icon: Scale, label: t('measurementConverter') },
-    { id: 'fridge' as const, icon: Search, label: t('fridgeSearch') },
+    { id: 'friends' as const, icon: Users, label: t('friends') },
   ];
 
   return (
-    <nav className={`fixed bottom-0 left-0 right-0 ${theme.bottomNavBg} backdrop-blur-md border-t ${theme.bottomNavBorder} shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-50`}>
-      <div className="max-w-md mx-auto">
-        <div className="flex justify-around py-2">
+    <nav className="fixed bottom-3 left-3 right-3 z-50">
+      <div className="max-w-xl mx-auto">
+        <div className={`neu-nav flex justify-around py-2 rounded-[28px]`}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
@@ -253,14 +308,14 @@ export function BottomNav({
               <button
                 key={item.id}
                 onClick={() => onViewChange(item.id)}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all duration-200 ${
+                className={`flex flex-col items-center gap-0.5 px-1.5 py-2 rounded-xl transition-all duration-200 min-h-[48px] min-w-0 flex-1 ${
                   isActive
                     ? `${theme.bottomNavActive} ${theme.bottomNavActiveBg}`
                     : theme.bottomNavInactive
                 }`}
               >
                 <Icon className="w-6 h-6" />
-                <span className="text-xs font-medium">{item.label}</span>
+                <span className="text-[11px] font-medium leading-tight text-center truncate w-full">{item.label}</span>
               </button>
             );
           })}

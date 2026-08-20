@@ -1,27 +1,35 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { ThemeProvider, useTheme } from './i18n/ThemeContext';
 import { AuthProvider, useAuth } from './i18n/AuthContext';
-import { Header, BottomNav } from './components/Header';
+import { Header, BottomNav, BottomNavView } from './components/Header';
 import { Onboarding } from './components/Onboarding';
 import { AuthScreen } from './components/AuthScreen';
 import { supabase } from './lib/supabase';
-import { RecipeCard, CategoryFilter } from './components/RecipeCard';
+import { RecipeCard } from './components/RecipeCard';
+import { RecipeFilterBar, RecipeStatusFilter } from './components/RecipeFilterBar';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { RecipeDetail } from './components/RecipeDetail';
 import { ShoppingListView } from './components/ShoppingListView';
 import { MeasurementConverterView } from './components/MeasurementConverterView';
 import { FridgeSearchView } from './components/FridgeSearchView';
+import { FriendsView } from './components/FriendsView';
+import { MealPlanView } from './components/MealPlanView';
 import { useRecipeStore } from './hooks/useRecipeStore';
-import { FullRecipe } from './types';
-import { Search, ChefHat } from 'lucide-react';
+import { FullRecipe, RecipeSort } from './types';
+import { useOnline } from './lib/online';
+import { isPresetShelf } from './data/shelves';
+import { recipeMatchesQuery } from './lib/recipeSearch';
+import { remainingShoppingItems } from './lib/ingredientMerge';
+import { ChefHat } from 'lucide-react';
 
-type AppView = 'recipes' | 'shopping' | 'converter' | 'fridge';
+type AppView = BottomNavView;
 
 function AppContent() {
-	const { t } = useLanguage();
+	const { t, language } = useLanguage();
 	const { theme } = useTheme();
 	const { session, loading: authLoading } = useAuth();
+	const online = useOnline();
 	const [showOnboarding, setShowOnboarding] = useState(false);
 
 	useEffect(() => {
@@ -44,22 +52,52 @@ function AppContent() {
 		recipes,
 		shoppingList,
 		addRecipe,
+		copyRecipe,
 		updateRecipe,
 		deleteRecipe,
 		toggleRecipeStatus,
+		toggleVisibility,
 		addToShoppingList,
 		toggleShoppingItem,
 		removeFromShoppingList,
 		clearShoppingList,
 		addShoppingItem,
-	} = useRecipeStore();
+		pantry,
+		addPantryItem,
+		removePantryItem,
+		mealPlan,
+		saveMealPlan,
+		toggleInMenu,
+		syncing,
+	} = useRecipeStore(session?.user.id);
 
 	const [activeView, setActiveView] = useState<AppView>('recipes');
+	const [showFridge, setShowFridge] = useState(false);
 	const [selectedRecipe, setSelectedRecipe] = useState<FullRecipe | null>(null);
 	const [showAddModal, setShowAddModal] = useState(false);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedCategory, setSelectedCategory] = useState('all');
+	const [statusFilter, setStatusFilter] = useState<RecipeStatusFilter>('all');
+	const [selectedTags, setSelectedTags] = useState<string[]>([]);
+	const [sortBy, setSortBy] = useState<RecipeSort>('newest');
 	const [editingRecipe, setEditingRecipe] = useState<FullRecipe | null>(null);
+	const [headerCompact, setHeaderCompact] = useState(false);
+	const filterBarRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (activeView !== 'recipes' || showFridge) {
+			setHeaderCompact(false);
+			return;
+		}
+		const el = filterBarRef.current;
+		if (!el) return;
+		const io = new IntersectionObserver(
+			([entry]) => setHeaderCompact(!entry.isIntersecting),
+			{ threshold: 0, rootMargin: '-72px 0px 0px 0px' },
+		);
+		io.observe(el);
+		return () => io.disconnect();
+	}, [activeView, showFridge]);
 
 	const filteredRecipes = useMemo(() => {
 		let filtered = [...recipes];
@@ -68,20 +106,64 @@ function AppContent() {
 			filtered = filtered.filter((r) => r.recipe.category === selectedCategory);
 		}
 
-		if (searchQuery.trim()) {
-			const query = searchQuery.toLowerCase();
-			filtered = filtered.filter((r) => {
-				const hasMatch = r.translations.some(
-					(t) =>
-						t.title.toLowerCase().includes(query) ||
-						t.description?.toLowerCase().includes(query),
-				);
-				return hasMatch;
-			});
+		if (statusFilter !== 'all') {
+			filtered = filtered.filter((r) => r.recipe.status === statusFilter);
 		}
 
+		if (searchQuery.trim()) {
+			filtered = filtered.filter((r) => recipeMatchesQuery(r, searchQuery));
+		}
+
+		if (selectedTags.length > 0) {
+			filtered = filtered.filter((r) =>
+				selectedTags.some((tag) => (r.recipe.tags || []).includes(tag)),
+			);
+		}
+
+		filtered.sort((a, b) => {
+			if (sortBy === 'title') {
+				const ta = a.translations.find((tr) => tr.language === language)?.title
+					|| a.translations[0]?.title
+					|| '';
+				const tb = b.translations.find((tr) => tr.language === language)?.title
+					|| b.translations[0]?.title
+					|| '';
+				return ta.localeCompare(tb, language);
+			}
+			if (sortBy === 'lastCooked') {
+				const aa = a.recipe.lastCookedAt || '';
+				const bb = b.recipe.lastCookedAt || '';
+				if (!aa && !bb) return 0;
+				if (!aa) return 1;
+				if (!bb) return -1;
+				return bb.localeCompare(aa);
+			}
+			return (b.recipe.createdAt || '').localeCompare(a.recipe.createdAt || '');
+		});
+
 		return filtered;
-	}, [recipes, selectedCategory, searchQuery]);
+	}, [recipes, selectedCategory, statusFilter, searchQuery, selectedTags, sortBy, language]);
+
+	const extraTags = useMemo(() => {
+		const set = new Set<string>();
+		for (const r of recipes) {
+			for (const tag of r.recipe.tags || []) {
+				if (!isPresetShelf(tag)) set.add(tag);
+			}
+		}
+		return [...set];
+	}, [recipes]);
+
+	const displayShopping = useMemo(
+		() => remainingShoppingItems(shoppingList, pantry),
+		[shoppingList, pantry],
+	);
+
+	useEffect(() => {
+		if (!selectedRecipe) return;
+		const fresh = recipes.find((r) => r.recipe.id === selectedRecipe.recipe.id);
+		if (fresh && fresh !== selectedRecipe) setSelectedRecipe(fresh);
+	}, [recipes, selectedRecipe]);
 
 	if (authLoading) {
 		return (
@@ -136,28 +218,59 @@ function AppContent() {
 
 	return (
 		<div className={`min-h-screen ${theme.bgPrimary}`}>
-			<Header onAddRecipe={openAddModal} onSignOut={handleSignOut} />
+			<Header
+				onAddRecipe={openAddModal}
+				onSignOut={handleSignOut}
+				onGoHome={() => {
+					setShowFridge(false);
+					setShowAddModal(false);
+					setSelectedRecipe(null);
+					setActiveView('recipes');
+					setSelectedCategory('all');
+					setStatusFilter('all');
+					setSearchQuery('');
+					setSelectedTags([]);
+				}}
+				compact={headerCompact && activeView === 'recipes' && !showFridge}
+				userId={session.user.id}
+				email={session.user.email}
+				online={online}
+				syncing={syncing}
+			/>
 
 			<main className='max-w-7xl mx-auto pb-24 pt-4'>
-				{activeView === 'recipes' && (
-					<>
-						<div className='px-4 mb-4'>
-							<div className='relative'>
-								<Search className='absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400' />
-								<input
-									type='text'
-									value={searchQuery}
-									onChange={(e) => setSearchQuery(e.target.value)}
-									placeholder={t('searchPlaceholder')}
-									className={`w-full pl-12 pr-4 py-3 ${theme.bgCard} rounded-xl border ${theme.border} focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-sm`}
-								/>
-							</div>
-						</div>
+				{showFridge && (
+					<FridgeSearchView
+						recipes={recipes}
+						pantry={pantry}
+						onAddPantry={(name) => addPantryItem(name)}
+						onRemovePantry={removePantryItem}
+						onOpenRecipe={handleOpenRecipe}
+						onClose={() => setShowFridge(false)}
+					/>
+				)}
 
-						<div className='mb-4'>
-							<CategoryFilter
+				{!showFridge && activeView === 'recipes' && (
+					<>
+						<div
+							ref={filterBarRef}
+							className={`sticky z-40 pb-1 ${theme.bgPrimary} ${
+								headerCompact ? 'top-14' : 'top-[72px]'
+							}`}
+						>
+							<RecipeFilterBar
 								selectedCategory={selectedCategory}
 								onSelectCategory={setSelectedCategory}
+								statusFilter={statusFilter}
+								onSelectStatus={setStatusFilter}
+								searchQuery={searchQuery}
+								onSearchChange={setSearchQuery}
+								onFridgeSearch={() => setShowFridge(true)}
+								extraTags={extraTags}
+								selectedTags={selectedTags}
+								onSelectTags={setSelectedTags}
+								sortBy={sortBy}
+								onSortChange={setSortBy}
 							/>
 						</div>
 
@@ -174,6 +287,13 @@ function AppContent() {
 										}}
 										onDelete={() => deleteRecipe(recipe.recipe.id)}
 										onToggleStatus={() => toggleRecipeStatus(recipe.recipe.id)}
+										onToggleVisibility={() => toggleVisibility(recipe.recipe.id)}
+										onToggleMenu={
+											recipe.recipe.id.startsWith('sample-')
+												? undefined
+												: () => toggleInMenu(recipe.recipe.id)
+										}
+										inMenu={mealPlan.entries.some((e) => e.recipeId === recipe.recipe.id)}
 									/>
 								))}
 							</div>
@@ -185,23 +305,25 @@ function AppContent() {
 									<ChefHat className='w-10 h-10 text-amber-300' />
 								</div>
 								<p className={`${theme.textSecondary} text-lg`}>
-									{t('noRecipes')}
+									{recipes.length > 0 ? t('noMatchingRecipes') : t('noRecipes')}
 								</p>
+								{recipes.length === 0 && (
 								<button
 									onClick={openAddModal}
-									className={`mt-4 px-6 py-2 ${theme.accentGradient} ${theme.accentHover} text-white rounded-full font-medium shadow-md hover:shadow-lg transition-all`}
+									className={`mt-4 px-6 py-2 ${theme.btnPrimary} font-medium`}
 								>
 									{t('addRecipe')}
 								</button>
+								)}
 							</div>
 						)}
 					</>
 				)}
 
-				{activeView === 'shopping' && (
+				{!showFridge && activeView === 'shopping' && (
 					// В App.tsx, внутри блока activeView === 'shopping'
 					<ShoppingListView
-						items={shoppingList}
+						items={displayShopping}
 						onToggle={toggleShoppingItem}
 						onRemove={removeFromShoppingList}
 						onClear={clearShoppingList}
@@ -209,20 +331,50 @@ function AppContent() {
 					/>
 				)}
 
-				{activeView === 'converter' && (
+				{!showFridge && activeView === 'menu' && (
+					<MealPlanView
+						recipes={recipes}
+						mealPlan={mealPlan}
+						onChange={saveMealPlan}
+						onSendToShopping={(items) => {
+							items.forEach((item) => addToShoppingList(item.name, item.quantity, item.unit));
+							setActiveView('shopping');
+						}}
+					/>
+				)}
+
+				{!showFridge && activeView === 'converter' && (
 					<MeasurementConverterView />
 				)}
 
-				{activeView === 'fridge' && (
-					<FridgeSearchView recipes={recipes} onOpenRecipe={handleOpenRecipe} />
+				{!showFridge && activeView === 'friends' && session && (
+					online ? (
+					<FriendsView
+						currentUserId={session.user.id}
+						onOpenRecipe={handleOpenRecipe}
+						onCopyRecipe={(recipe) => { void copyRecipe(recipe, language); }}
+					/>
+					) : (
+						<p className={`text-center py-12 ${theme.textSecondary}`}>{t('offlineHint')}</p>
+					)
 				)}
 			</main>
 
-			<BottomNav activeView={activeView} onViewChange={setActiveView} />
+			<BottomNav
+				activeView={activeView}
+				onViewChange={(view) => {
+					setShowFridge(false);
+					setActiveView(view);
+				}}
+			/>
 
 			{selectedRecipe && (
 				<RecipeDetail
 					recipe={selectedRecipe}
+					readOnly={
+						!!selectedRecipe.recipe.userId &&
+						selectedRecipe.recipe.userId !== session.user.id
+					}
 					onClose={handleCloseRecipe}
 					onEdit={handleEditRecipe}
 					onDelete={() => {
@@ -230,6 +382,14 @@ function AppContent() {
 						handleCloseRecipe();
 					}}
 					onAddToShoppingList={handleAddToShoppingList}
+					onUpdate={updateRecipe}
+					extraTags={extraTags}
+					onCopy={
+						selectedRecipe.recipe.userId &&
+						selectedRecipe.recipe.userId !== session.user.id
+							? () => { void copyRecipe(selectedRecipe, language); }
+							: undefined
+					}
 				/>
 			)}
 
@@ -241,6 +401,13 @@ function AppContent() {
 				}}
 				onSave={handleSaveRecipe}
 				editingRecipe={editingRecipe}
+				extraTags={extraTags}
+				existingRecipes={recipes}
+				onOpenExisting={(recipe) => {
+					setShowAddModal(false);
+					setEditingRecipe(null);
+					setSelectedRecipe(recipe);
+				}}
 			/>
 		</div>
 	);

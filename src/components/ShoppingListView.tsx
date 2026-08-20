@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { ShoppingItem } from '../types';
@@ -12,6 +12,20 @@ import {
 	Share2,
 	Check,
 } from 'lucide-react';
+import { AISLE_IDS, AISLE_I18N_KEYS, aisleForName } from '../data/aisles';
+
+const SPEECH_LOCALES: Record<string, string> = {
+	ru: 'ru-RU',
+	en: 'en-US',
+	de: 'de-DE',
+	uk: 'uk-UA',
+	pl: 'pl-PL',
+	it: 'it-IT',
+	es: 'es-ES',
+	fr: 'fr-FR',
+};
+
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
 
 interface ShoppingListViewProps {
 	items: ShoppingItem[];
@@ -21,9 +35,6 @@ interface ShoppingListViewProps {
 	onAdd: (name: string) => void;
 }
 
-// Парсит строку из голосового ввода в список отдельных продуктов.
-// Если есть явные разделители (запятая, "и", "+", etc.) — бьёт по ним.
-// Если разделителей нет — каждое слово считается отдельным продуктом.
 function parseVoiceText(text: string): string[] {
 	const hasExplicitSeparator =
 		/[;,]|\s+и\s+|\s+and\s+|\+|\s+плюс\s+|\s+plus\s+/.test(text);
@@ -35,11 +46,7 @@ function parseVoiceText(text: string): string[] {
 			.filter((s) => s.length > 0);
 	}
 
-	// Нет разделителей — каждое слово = отдельный продукт
-	return text
-		.split(/\s+/)
-		.map((s) => s.trim())
-		.filter((s) => s.length > 0);
+	return [text.trim()].filter(Boolean);
 }
 
 export function ShoppingListView({
@@ -49,11 +56,23 @@ export function ShoppingListView({
 	onClear,
 	onAdd,
 }: ShoppingListViewProps) {
-	const { language } = useLanguage();
+	const { language, t } = useLanguage();
 	const { theme } = useTheme();
 	const [newItem, setNewItem] = useState('');
 	const [isRecording, setIsRecording] = useState(false);
 	const [copied, setCopied] = useState(false);
+
+	const grouped = useMemo(() => {
+		const buckets = new Map<string, ShoppingItem[]>();
+		for (const id of AISLE_IDS) buckets.set(id, []);
+		for (const item of items) {
+			const aisle = aisleForName(item.ingredientName);
+			buckets.get(aisle)?.push(item);
+		}
+		return AISLE_IDS.map((id) => ({ id, items: buckets.get(id) ?? [] })).filter(
+			(group) => group.items.length > 0,
+		);
+	}, [items]);
 
 	const handleVoiceInput = () => {
 		const SpeechRecognition =
@@ -61,16 +80,12 @@ export function ShoppingListView({
 			(window as any).webkitSpeechRecognition;
 
 		if (!SpeechRecognition) {
-			alert(
-				language === 'ru'
-					? 'Голосовой ввод не поддерживается вашим браузером'
-					: 'Voice input not supported in your browser',
-			);
+			alert(t('voiceUnsupported'));
 			return;
 		}
 
 		const recognition = new SpeechRecognition();
-		recognition.lang = language === 'ru' ? 'ru-RU' : 'en-US';
+		recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
 		recognition.interimResults = false;
 		recognition.maxAlternatives = 1;
 
@@ -79,9 +94,7 @@ export function ShoppingListView({
 
 		recognition.onresult = (event: any) => {
 			const transcript = event.results[0][0].transcript.trim();
-			const parsed = parseVoiceText(transcript);
-			// Каждый продукт добавляется отдельным вызовом — App создаёт уникальный ID
-			parsed.forEach((product) => onAdd(product));
+			parseVoiceText(transcript).forEach((product) => onAdd(product));
 		};
 
 		recognition.onerror = (event: any) => {
@@ -92,17 +105,35 @@ export function ShoppingListView({
 		recognition.start();
 	};
 
-	const generateExportText = () => {
-		const header =
-			language === 'ru' ? '🛒 Список покупок:' : '🛒 Shopping List:';
-		const lines = items.map((item, i) => `${i + 1}. ${item.ingredientName}`);
-		return `${header}\n\n${lines.join('\n')}`;
+	const formatUnit = (unit?: string) => {
+		if (!unit) return '';
+		const u = unit.toLowerCase().trim();
+		return UNIT_KEYS.includes(u) ? t(u) : unit;
 	};
+
+	const itemLabel = (item: ShoppingItem) => {
+		const qty =
+			item.quantity != null && item.quantity !== 0
+				? ` — ${item.quantity}${item.unit ? ` ${formatUnit(item.unit)}` : ''}`
+				: '';
+		return `${item.ingredientName}${qty}`;
+	};
+
+	const generateExportText = () => {
+		const header = `🛒 ${t('shoppingList')}:`;
+		const lines = grouped.flatMap((group) => [
+			`${t(AISLE_I18N_KEYS[group.id])}:`,
+			...group.items.map((item, i) => `${i + 1}. ${itemLabel(item)}`),
+			'',
+		]);
+		return `${header}\n\n${lines.join('\n')}`.trim();
+	};
+
+	let runningIndex = 0;
 
 	return (
 		<div className='max-w-md mx-auto p-4 space-y-4'>
-			{/* Поле ввода */}
-			<div className={`${theme.bgCard} p-4 rounded-xl border ${theme.border}`}>
+			<div className={`${theme.card} p-4`}>
 				<div className='flex items-center gap-2'>
 					<input
 						value={newItem}
@@ -113,10 +144,8 @@ export function ShoppingListView({
 								setNewItem('');
 							}
 						}}
-						className={`flex-1 p-2 rounded-lg border ${theme.inputBg} ${theme.textPrimary}`}
-						placeholder={
-							language === 'ru' ? 'Добавить продукт...' : 'Add item...'
-						}
+						className={`flex-1 p-2.5 text-base ${theme.input}`}
+						placeholder={t('addItemPlaceholder')}
 					/>
 					<button
 						onClick={handleVoiceInput}
@@ -125,7 +154,7 @@ export function ShoppingListView({
 								? 'bg-red-500 text-white animate-pulse'
 								: 'bg-gray-200 hover:bg-gray-300'
 						}`}
-						title={language === 'ru' ? 'Голосовой ввод' : 'Voice input'}
+						title={t('voiceInput')}
 					>
 						<Mic className='w-5 h-5' />
 					</button>
@@ -136,14 +165,13 @@ export function ShoppingListView({
 								setNewItem('');
 							}
 						}}
-						className={`p-2 rounded-lg ${theme.accentGradient}`}
+						className={`p-2 ${theme.iconBtn}`}
 					>
 						<Plus className='w-5 h-5' />
 					</button>
 				</div>
 			</div>
 
-			{/* Кнопки шаринга */}
 			{items.length > 0 && (
 				<div className='space-y-2'>
 					<button
@@ -155,13 +183,7 @@ export function ShoppingListView({
 						className='w-full py-2 bg-gray-100 rounded-lg flex items-center justify-center gap-2 text-sm hover:bg-gray-200 transition-colors'
 					>
 						<Copy className='w-4 h-4' />
-						{copied
-							? language === 'ru'
-								? 'Скопировано!'
-								: 'Copied!'
-							: language === 'ru'
-								? 'Копировать список'
-								: 'Copy list'}
+						{copied ? t('copied') : t('copyList')}
 					</button>
 
 					<div className='grid grid-cols-4 gap-2'>
@@ -202,10 +224,7 @@ export function ShoppingListView({
 							onClick={async () => {
 								if (navigator.share) {
 									await navigator.share({
-										title:
-											language === 'ru'
-												? 'Список покупок от SmartRecipe Hub'
-												: 'Shopping list from SmartRecipe Hub',
+										title: t('shareListTitle'),
 										text: generateExportText(),
 									});
 								}
@@ -219,52 +238,58 @@ export function ShoppingListView({
 				</div>
 			)}
 
-			{/* Нумерованный список */}
-			<ol className='space-y-2'>
-				{items.map((item, index) => (
-					<li
-						key={item.id}
-						className={`flex items-center justify-between px-4 py-3 ${theme.bgCard} border ${theme.border} rounded-xl shadow-sm transition-all ${
-							item.checked ? 'bg-green-50 border-green-200' : ''
-						}`}
-					>
-						<div className='flex items-center gap-3 flex-1 min-w-0'>
-							<button
-								onClick={() => onToggle(item.id)}
-								className={`w-8 h-8 shrink-0 rounded-md border-2 flex items-center justify-center font-bold text-sm transition-all ${
-									item.checked
-										? 'bg-green-500 border-green-500 text-white'
-										: 'border-gray-300 text-gray-500 hover:border-green-400 hover:text-green-500'
-								}`}
-							>
-								{item.checked ? <Check className='w-4 h-4' /> : index + 1}
-							</button>
-							<span
-								className={`truncate ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
-							>
-								{item.ingredientName}
-							</span>
-						</div>
-						<div className='flex items-center gap-1 shrink-0 ml-2'>
-							<button
-								onClick={() => onRemove(item.id)}
-								className='p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors'
-							>
-								<Trash2 className='w-4 h-4' />
-							</button>
-						</div>
-					</li>
-				))}
-			</ol>
+			{grouped.map((group) => (
+				<div key={group.id} className="space-y-2">
+					<p className={`text-sm font-semibold px-1 ${theme.textSecondary}`}>
+						{t(AISLE_I18N_KEYS[group.id])}
+					</p>
+					<ol className='space-y-2'>
+						{group.items.map((item) => {
+							runningIndex += 1;
+							const index = runningIndex;
+							return (
+								<li
+									key={item.id}
+									className={`flex items-center justify-between px-4 py-3 ${theme.card} transition-all ${
+										item.checked ? 'bg-green-50 border-green-200' : ''
+									}`}
+								>
+									<div className='flex items-center gap-3 flex-1 min-w-0'>
+										<button
+											onClick={() => onToggle(item.id)}
+											className={`w-8 h-8 shrink-0 rounded-md border-2 flex items-center justify-center font-bold text-sm transition-all ${
+												item.checked
+													? 'bg-green-500 border-green-500 text-white'
+													: 'border-gray-300 text-gray-500 hover:border-green-400 hover:text-green-500'
+											}`}
+										>
+											{item.checked ? <Check className='w-4 h-4' /> : index}
+										</button>
+										<span
+											className={`truncate text-base ${theme.textPrimary} ${item.checked ? 'line-through text-gray-400' : ''}`}
+										>
+											{itemLabel(item)}
+										</span>
+									</div>
+									<div className='flex items-center gap-1 shrink-0 ml-2'>
+										<button
+											onClick={() => onRemove(item.id)}
+											className='p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors'
+										>
+											<Trash2 className='w-4 h-4' />
+										</button>
+									</div>
+								</li>
+							);
+						})}
+					</ol>
+				</div>
+			))}
 
 			{items.length === 0 && (
 				<div className={`text-center py-12 ${theme.textSecondary}`}>
 					<p className='text-4xl mb-3'>🛒</p>
-					<p>
-						{language === 'ru'
-							? 'Список пуст. Добавьте продукты!'
-							: 'List is empty. Add some items!'}
-					</p>
+					<p>{t('listEmptyAddItems')}</p>
 				</div>
 			)}
 
@@ -273,7 +298,7 @@ export function ShoppingListView({
 					onClick={onClear}
 					className='w-full py-2 text-red-500 border border-red-200 rounded-xl text-sm hover:bg-red-50 transition-colors'
 				>
-					{language === 'ru' ? 'Очистить всё' : 'Clear all'}
+					{t('clearAll')}
 				</button>
 			)}
 		</div>

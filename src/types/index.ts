@@ -1,18 +1,39 @@
+export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr' | 'kk';
+
 export interface Recipe {
   id: string;
+  userId?: string;
   category: string;
   status: 'want_to_cook' | 'cooked_liked';
   imageUrl?: string;
   sourceUrl?: string;
   servings: number;
+  calories?: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  visibleToFriends: boolean;
+  notes?: string;
+  lastCookedAt?: string;
+  tags?: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FriendProfile {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  displayName: string | null;
+  username: string | null;
+  nickname: string | null;
+  avatarUrl: string | null;
 }
 
 export interface RecipeTranslation {
   id: string;
   recipeId: string;
-  language: 'ru' | 'en' | 'de';
+  language: Language;
   title: string;
   description?: string;
 }
@@ -29,7 +50,7 @@ export interface RecipeIngredient {
 export interface IngredientTranslation {
   id: string;
   ingredientId: string;
-  language: 'ru' | 'en' | 'de';
+  language: Language;
   name: string;
 }
 
@@ -44,7 +65,7 @@ export interface RecipeStep {
 export interface StepTranslation {
   id: string;
   stepId: string;
-  language: 'ru' | 'en' | 'de';
+  language: Language;
   instruction: string;
 }
 
@@ -56,6 +77,17 @@ export interface ShoppingItem {
   recipeId?: string;
   checked: boolean;
 }
+
+export interface PantryItem {
+  id: string;
+  name: string;
+  quantity?: number;
+  unit?: string;
+}
+
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export type RecipeSort = 'newest' | 'lastCooked' | 'title';
 
 export interface GroceryStore {
   id: string;
@@ -82,9 +114,23 @@ export interface FullRecipe {
   steps: (RecipeStep & { translations: StepTranslation[] })[];
 }
 
-export type ViewMode = 'recipes' | 'shopping' | 'utilities' | 'add';
+export interface MealPlanEntry {
+  id: string;
+  recipeId: string;
+  dayIndex: number | null;
+  sortOrder: number;
+  servings?: number;
+  mealSlot?: MealSlot | null;
+}
 
-export type Language = 'ru' | 'en' | 'de';
+export interface MealPlan {
+  dayCount: number;
+  weekStart: string;
+  entries: MealPlanEntry[];
+  updatedAt?: string;
+}
+
+export type ViewMode = 'recipes' | 'shopping' | 'menu' | 'utilities' | 'add';
 
 export interface SpeechRecognitionResultList {
   readonly length: number;

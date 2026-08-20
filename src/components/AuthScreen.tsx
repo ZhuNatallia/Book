@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { useOnline } from '../lib/online';
 import { ChefHat, Mail, Lock, Eye, EyeOff, ArrowLeft, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
@@ -13,6 +14,7 @@ interface AuthScreenProps {
 export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
+  const online = useOnline();
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +31,10 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
 
   const handleOAuth = async (provider: 'google' | 'apple') => {
     setError(null);
+    if (!navigator.onLine) {
+      setError(t('offlineHint'));
+      return;
+    }
     setSocialLoading(provider);
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
@@ -54,6 +60,11 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+
+    if (!navigator.onLine) {
+      setError(t('offlineHint'));
+      return;
+    }
 
     if (!email.trim() || !password.trim()) {
       setError(t('authErrorGeneric'));
@@ -99,7 +110,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     }
   };
 
-  const inputCls = `w-full pl-11 pr-4 py-3.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all ${theme.inputPlaceholder}`;
+  const inputCls = `w-full pl-11 pr-4 py-3.5 text-base ${theme.input}`;
 
   return (
     <div className={`min-h-screen flex flex-col ${theme.bgPrimary}`}>
@@ -112,18 +123,21 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
         <h1 className={`text-2xl font-bold ${theme.textPrimary} mb-1`}>
           {mode === 'forgot' ? t('authForgotTitle') : t('authWelcome')}
         </h1>
-        <p className={`${theme.textSecondary} text-sm mb-8 text-center`}>
+        <p className={`${theme.textSecondary} text-base mb-8 text-center`}>
           {mode === 'forgot' ? t('authForgotDesc') : t('authWelcomeDesc')}
         </p>
+        {!online && (
+          <p className={`text-sm mb-4 text-center ${theme.textSecondary}`}>{t('offlineHint')}</p>
+        )}
 
         {/* Mode tabs */}
         {mode !== 'forgot' && (
-          <div className={`flex w-full mb-6 ${theme.bgCard} rounded-xl p-1 border ${theme.border}`}>
+          <div className={`flex w-full mb-6 ${theme.card} p-1`}>
             <button
               onClick={() => { setMode('login'); setError(null); }}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex-1 py-2.5 text-base font-medium transition-all ${
                 mode === 'login'
-                  ? `${theme.accentGradient} text-white shadow-sm`
+                  ? theme.chipActive
                   : theme.textSecondary
               }`}
             >
@@ -131,9 +145,9 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
             </button>
             <button
               onClick={() => { setMode('signup'); setError(null); }}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex-1 py-2.5 text-base font-medium transition-all ${
                 mode === 'signup'
-                  ? `${theme.accentGradient} text-white shadow-sm`
+                  ? theme.chipActive
                   : theme.textSecondary
               }`}
             >
@@ -206,7 +220,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-3.5 ${theme.accentGradient} ${theme.accentHover} text-white rounded-xl font-semibold shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2`}
+            className={`w-full py-3.5 ${theme.btnPrimary} font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
           >
             {loading && <Loader2 className="w-5 h-5 animate-spin" />}
             {mode === 'login' ? t('authSignInBtn') : mode === 'signup' ? t('authSignUpBtn') : t('authSendReset')}
@@ -226,7 +240,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
               <button
                 onClick={handleGoogleSignIn}
                 disabled={loading || socialLoading === 'google'}
-                className={`w-full py-3 ${theme.bgCard} ${theme.textPrimary} border ${theme.border} rounded-xl font-medium hover:bg-gray-50 disabled:opacity-60 transition-all flex items-center justify-center gap-3`}
+                className={`w-full py-3 ${theme.btnSoft} ${theme.textPrimary} font-medium disabled:opacity-60 flex items-center justify-center gap-3`}
               >
                 {socialLoading === 'google' ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -243,7 +257,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
               <button
                 onClick={handleAppleSignIn}
                 disabled={loading || socialLoading === 'apple'}
-                className={`w-full py-3 ${theme.bgCard} ${theme.textPrimary} border ${theme.border} rounded-xl font-medium hover:bg-gray-50 disabled:opacity-60 transition-all flex items-center justify-center gap-3`}
+                className={`w-full py-3 ${theme.btnSoft} ${theme.textPrimary} font-medium disabled:opacity-60 flex items-center justify-center gap-3`}
               >
                 {socialLoading === 'apple' ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
