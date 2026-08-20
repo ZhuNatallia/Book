@@ -68,7 +68,7 @@ export interface Theme {
 export const themes: Record<ThemeId, Theme> = {
   light: {
     id: 'light',
-    name: { ru: 'Светлая', en: 'Light', de: 'Hell', uk: 'Світла', pl: 'Jasny', it: 'Chiaro', es: 'Claro', fr: 'Clair' },
+    name: { ru: 'Светлая', en: 'Light', de: 'Hell', uk: 'Світла', pl: 'Jasny', it: 'Chiaro', es: 'Claro', fr: 'Clair', kk: 'Ашық' },
     bgPrimary: 'bg-[#eef2f6]',
     bgSecondary: 'bg-[#f7f9fc]',
     bgCard: 'bg-[#eef2f6]',
@@ -113,7 +113,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   dark: {
     id: 'dark',
-    name: { ru: 'Темная', en: 'Dark', de: 'Dunkel', uk: 'Темна', pl: 'Ciemny', it: 'Scuro', es: 'Oscuro', fr: 'Sombre' },
+    name: { ru: 'Темная', en: 'Dark', de: 'Dunkel', uk: 'Темна', pl: 'Ciemny', it: 'Scuro', es: 'Oscuro', fr: 'Sombre', kk: 'Қараңғы' },
     bgPrimary: 'bg-[#16181d]',
     bgSecondary: 'bg-[#1e2128]',
     bgCard: 'bg-[#1e2128]',
@@ -158,7 +158,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   turquoise: {
     id: 'turquoise',
-    name: { ru: 'Цветная', en: 'Colorful', de: 'Bunt', uk: 'Кольорова', pl: 'Kolorowy', it: 'Colorata', es: 'Colorida', fr: 'Colorée' },
+    name: { ru: 'Цветная', en: 'Colorful', de: 'Bunt', uk: 'Кольорова', pl: 'Kolorowy', it: 'Colorata', es: 'Colorida', fr: 'Colorée', kk: 'Түсті' },
     bgPrimary: 'bg-[#e7f6f4]',
     bgSecondary: 'bg-[#f4fcfb]',
     bgCard: 'bg-[#f7fffe]',
@@ -203,7 +203,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   pumpkin: {
     id: 'pumpkin',
-    name: { ru: 'Бежевая', en: 'Beige', de: 'Beige', uk: 'Бежева', pl: 'Beżowy', it: 'Beige', es: 'Beige', fr: 'Beige' },
+    name: { ru: 'Бежевая', en: 'Beige', de: 'Beige', uk: 'Бежева', pl: 'Beżowy', it: 'Beige', es: 'Beige', fr: 'Beige', kk: 'Беж' },
     bgPrimary: 'bg-[#f5eee6]',
     bgSecondary: 'bg-[#faf6f1]',
     bgCard: 'bg-[#fffaf5]',
@@ -248,7 +248,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   lavender: {
     id: 'lavender',
-    name: { ru: 'Лаванда', en: 'Lavender', de: 'Lavendel', uk: 'Лаванда', pl: 'Lawenda', it: 'Lavanda', es: 'Lavanda', fr: 'Lavande' },
+    name: { ru: 'Лаванда', en: 'Lavender', de: 'Lavendel', uk: 'Лаванда', pl: 'Lawenda', it: 'Lavanda', es: 'Lavanda', fr: 'Lavande', kk: 'Лаванда' },
     bgPrimary: 'bg-[#efeaf8]',
     bgSecondary: 'bg-[#f7f4fc]',
     bgCard: 'bg-[#efeaf8]',

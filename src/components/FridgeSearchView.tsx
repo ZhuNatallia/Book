@@ -29,10 +29,9 @@ export function FridgeSearchView({ recipes, onOpenRecipe, onClose }: FridgeSearc
     }[] = [];
 
     recipes.forEach((recipe) => {
-      const recipeIngredients = recipe.ingredients.map((ing) => {
-        const trans = ing.translations.find((tr) => tr.language === language);
-        return trans?.name.toLowerCase() || '';
-      });
+      const recipeIngredients = recipe.ingredients.flatMap((ing) =>
+        ing.translations.map((tr) => tr.name.toLowerCase()).filter(Boolean),
+      );
 
       const matchedIngredients: string[] = [];
       let matchCount = 0;
@@ -94,9 +93,10 @@ export function FridgeSearchView({ recipes, onOpenRecipe, onClose }: FridgeSearc
               {`${fridgeResults.length} ${t('recipesFound')}`}
             </p>
             {fridgeResults.map((result) => {
-              const translation = result.recipe.translations.find(
-                (tr) => tr.language === language,
-              );
+              const translation =
+                result.recipe.translations.find((tr) => tr.language === language) ||
+                result.recipe.translations.find((tr) => tr.language === 'ru') ||
+                result.recipe.translations[0];
               return (
                 <div
                   key={result.recipe.recipe.id}

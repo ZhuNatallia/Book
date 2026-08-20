@@ -2,10 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
-import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User } from 'lucide-react';
+import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User, CalendarDays } from 'lucide-react';
 import { ProfileSettings } from './ProfileSettings';
 
-export type BottomNavView = 'recipes' | 'shopping' | 'converter' | 'friends';
+export type BottomNavView = 'recipes' | 'shopping' | 'menu' | 'converter' | 'friends';
 
 interface HeaderProps {
   onAddRecipe: () => void;
@@ -14,6 +14,8 @@ interface HeaderProps {
   compact?: boolean;
   userId: string;
   email?: string;
+  online?: boolean;
+  syncing?: boolean;
 }
 
 type SettingsView = 'main' | 'language' | 'theme' | 'profile';
@@ -25,6 +27,8 @@ export function Header({
   compact = false,
   userId,
   email,
+  online = true,
+  syncing = false,
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId } = useTheme();
@@ -53,6 +57,7 @@ export function Header({
     { code: 'it', flag: '🇮🇹', label: 'Italiano' },
     { code: 'es', flag: '🇪🇸', label: 'Español' },
     { code: 'fr', flag: '🇫🇷', label: 'Français' },
+    { code: 'kk', flag: '🇰🇿', label: 'Қазақша' },
   ];
 
   const currentLanguage = languages.find((l) => l.code === language) ?? languages[0];
@@ -89,6 +94,12 @@ export function Header({
           </button>
 
           <div className="flex items-center gap-3">
+            {!online && (
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${theme.chip}`}>{t('offline')}</span>
+            )}
+            {online && syncing && (
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${theme.chip}`}>{t('syncing')}</span>
+            )}
             <button
               onClick={onAddRecipe}
               className={`${theme.btnPrimary} flex items-center gap-2 px-4 py-2 font-medium`}
@@ -273,7 +284,7 @@ export function BottomNav({
     {
       id: 'shopping' as const,
       icon: () => (
-        <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
           <line x1="3" y1="6" x2="21" y2="6" />
           <path d="M16 10a4 4 0 0 1-8 0" />
@@ -281,13 +292,14 @@ export function BottomNav({
       ),
       label: t('shoppingList'),
     },
+    { id: 'menu' as const, icon: CalendarDays, label: t('menu') },
     { id: 'converter' as const, icon: Scale, label: t('measurementConverter') },
     { id: 'friends' as const, icon: Users, label: t('friends') },
   ];
 
   return (
     <nav className="fixed bottom-3 left-3 right-3 z-50">
-      <div className="max-w-md mx-auto">
+      <div className="max-w-xl mx-auto">
         <div className={`neu-nav flex justify-around py-2 rounded-[28px]`}>
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -296,14 +308,14 @@ export function BottomNav({
               <button
                 key={item.id}
                 onClick={() => onViewChange(item.id)}
-                className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl transition-all duration-200 min-h-[52px] ${
+                className={`flex flex-col items-center gap-0.5 px-1.5 py-2 rounded-xl transition-all duration-200 min-h-[48px] min-w-0 flex-1 ${
                   isActive
                     ? `${theme.bottomNavActive} ${theme.bottomNavActiveBg}`
                     : theme.bottomNavInactive
                 }`}
               >
-                <Icon className="w-7 h-7" />
-                <span className="text-sm font-medium leading-tight text-center">{item.label}</span>
+                <Icon className="w-6 h-6" />
+                <span className="text-[11px] font-medium leading-tight text-center truncate w-full">{item.label}</span>
               </button>
             );
           })}

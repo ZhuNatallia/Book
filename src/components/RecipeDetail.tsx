@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
+import { ShelfPicker } from './ShelfPicker';
+import { isSampleRecipeId } from '../lib/recipeDb';
 import { X, Minus, Plus, Play, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
@@ -31,8 +33,10 @@ interface RecipeDetailProps {
 	onEdit: () => void;
 	onDelete: () => void;
 	onAddToShoppingList: (name: string, qty: number, unit: string) => void;
+	onUpdate?: (recipe: FullRecipe) => void;
 	readOnly?: boolean;
 	onCopy?: () => void;
+	extraTags?: string[];
 }
 
 export function RecipeDetail({
@@ -41,8 +45,10 @@ export function RecipeDetail({
 	onEdit,
 	onDelete,
 	onAddToShoppingList,
+	onUpdate,
 	readOnly = false,
 	onCopy,
+	extraTags = [],
 }: RecipeDetailProps) {
 	const { language, t } = useLanguage();
 	const { theme } = useTheme();
@@ -56,6 +62,12 @@ export function RecipeDetail({
 	);
 	const [addedToList, setAddedToList] = useState(false);
 	const [copiedToBook, setCopiedToBook] = useState(false);
+	const isPersonal = !readOnly && !isSampleRecipeId(recipe.recipe.id);
+	const [notes, setNotes] = useState(recipe.recipe.notes || '');
+
+	useEffect(() => {
+		setNotes(recipe.recipe.notes || '');
+	}, [recipe.recipe.id, recipe.recipe.notes]);
 	const formatUnit = (unit: string) => {
 		if (!unit) return '';
 		const u = unit.toLowerCase().trim();
@@ -78,13 +90,19 @@ export function RecipeDetail({
 	};
 
 	const getIngredientName = (ingredient: (typeof recipe.ingredients)[0]) => {
-		const trans = ingredient.translations.find((t) => t.language === language);
-		return trans?.name || ingredient.translations[0]?.name || 'Unknown';
+		const trans =
+			ingredient.translations.find((t) => t.language === language) ||
+			ingredient.translations.find((t) => t.language === 'ru') ||
+			ingredient.translations[0];
+		return trans?.name || t('title');
 	};
 
 	const getStepInstruction = (step: (typeof recipe.steps)[0]) => {
-		const trans = step.translations.find((t) => t.language === language);
-		return trans?.instruction || step.translations[0]?.instruction || '';
+		const trans =
+			step.translations.find((t) => t.language === language) ||
+			step.translations.find((t) => t.language === 'ru') ||
+			step.translations[0];
+		return trans?.instruction || '';
 	};
 
 	// Blank steps can exist on recipes saved before empty rows were filtered out on save,
@@ -228,6 +246,45 @@ export function RecipeDetail({
 						<p className={`${theme.textSecondary} text-base mt-2 leading-relaxed whitespace-pre-line`}>
 							{translation.description}
 						</p>
+					)}
+					{isPersonal && recipe.recipe.lastCookedAt && (
+						<p className={`text-xs mt-2 ${theme.textSecondary}`}>
+							{t('lastCooked')}{' '}
+							{new Date(recipe.recipe.lastCookedAt).toLocaleDateString(language, {
+								day: 'numeric',
+								month: 'short',
+							})}
+						</p>
+					)}
+					{isPersonal && (
+						<div className="mt-4 space-y-3">
+							<label className={`block text-sm font-semibold ${theme.textPrimary}`}>{t('myNotes')}</label>
+							<textarea
+								value={notes}
+								onChange={(e) => setNotes(e.target.value)}
+								onBlur={() => {
+									if ((recipe.recipe.notes || '') === notes) return;
+									onUpdate?.({
+										...recipe,
+										recipe: { ...recipe.recipe, notes, updatedAt: new Date().toISOString() },
+									});
+								}}
+								rows={3}
+								placeholder={t('notesPlaceholder')}
+								className={`w-full px-3 py-2.5 text-base ${theme.input}`}
+							/>
+							<p className={`text-sm font-semibold ${theme.textPrimary}`}>{t('shelves')}</p>
+							<ShelfPicker
+								tags={recipe.recipe.tags || []}
+								extraTags={extraTags}
+								onChange={(tags) =>
+									onUpdate?.({
+										...recipe,
+										recipe: { ...recipe.recipe, tags, updatedAt: new Date().toISOString() },
+									})
+								}
+							/>
+						</div>
 					)}
 					{recipe.recipe.sourceUrl && (
 						<a

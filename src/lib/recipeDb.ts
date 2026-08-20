@@ -54,6 +54,9 @@ type RecipeRow = {
   carbs_per_serving: number | string | null;
   fat_per_serving: number | string | null;
   visible_to_friends: boolean | null;
+  notes: string | null;
+  last_cooked_at: string | null;
+  tags: string[] | null;
   created_at: string;
   updated_at: string;
   recipe_translations: TranslationRow[] | null;
@@ -123,6 +126,9 @@ export function mapRowToFullRecipe(row: RecipeRow): FullRecipe {
       fat: num(row.fat_per_serving),
       carbs: num(row.carbs_per_serving),
       visibleToFriends: row.visible_to_friends ?? false,
+      notes: row.notes ?? undefined,
+      lastCookedAt: row.last_cooked_at ?? undefined,
+      tags: row.tags ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     },
@@ -171,6 +177,9 @@ export function cloneRecipeForUser(full: FullRecipe, userId: string): FullRecipe
       userId,
       status: 'want_to_cook',
       visibleToFriends: false,
+      notes: undefined,
+      lastCookedAt: undefined,
+      tags: [],
       createdAt: now,
       updatedAt: now,
     },
@@ -277,6 +286,9 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
     carbs_per_serving: r.carbs ?? null,
     fat_per_serving: r.fat ?? null,
     visible_to_friends: r.visibleToFriends ?? false,
+    notes: r.notes || null,
+    last_cooked_at: r.lastCookedAt || null,
+    tags: r.tags ?? [],
     updated_at: now,
   });
   if (recipeError) throw recipeError;
@@ -377,6 +389,9 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
       id: recipeId,
       userId,
       visibleToFriends: r.visibleToFriends ?? false,
+      notes: r.notes,
+      lastCookedAt: r.lastCookedAt,
+      tags: r.tags ?? [],
       updatedAt: now,
     },
     translations: full.translations.map((tr) => ({ ...tr, recipeId })),
@@ -385,13 +400,21 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
   };
 }
 
-export async function updateRecipeFlags(
-  recipeId: string,
-  patch: { status?: 'want_to_cook' | 'cooked_liked'; visibleToFriends?: boolean },
-) {
+export type RecipeFlagPatch = {
+  status?: 'want_to_cook' | 'cooked_liked';
+  visibleToFriends?: boolean;
+  lastCookedAt?: string | null;
+  notes?: string | null;
+  tags?: string[];
+};
+
+export async function updateRecipeFlags(recipeId: string, patch: RecipeFlagPatch) {
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.status !== undefined) row.status = patch.status;
   if (patch.visibleToFriends !== undefined) row.visible_to_friends = patch.visibleToFriends;
+  if (patch.lastCookedAt !== undefined) row.last_cooked_at = patch.lastCookedAt;
+  if (patch.notes !== undefined) row.notes = patch.notes;
+  if (patch.tags !== undefined) row.tags = patch.tags;
   const { error } = await supabase.from('recipes').update(row).eq('id', recipeId);
   if (error) throw error;
 }

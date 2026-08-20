@@ -838,7 +838,7 @@ const ARTICLE_CONTAINERS = [
 
 // Where the recipe proper begins, in every language the app can be set to.
 const INGREDIENT_HEADER_RE =
-  /(ингредиент|інгредієнт|состав:|склад:|ingredient|ingrédient|ingrediente|zutaten|składnik)/i;
+  /(ингредиент|інгредієнт|ингредиенттер|құрамы|состав:|склад:|ingredient|ingrédient|ingrediente|zutaten|składnik)/i;
 
 // Sharing widgets and "you may also like" lists that follow the recipe. Only ever applied
 // after the ingredient header, because the same words also appear above the article.
@@ -976,6 +976,7 @@ const LLM_LANG_NAMES: Record<string, string> = {
   it: 'Italian',
   es: 'Spanish',
   fr: 'French',
+  kk: 'Kazakh',
 };
 
 function llmLangName(lang: string): string {

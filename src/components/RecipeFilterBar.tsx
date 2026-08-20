@@ -3,6 +3,7 @@ import { ListFilter, Refrigerator, Search } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { CategoryFilter } from './RecipeCard';
+import { ShelfPicker } from './ShelfPicker';
 
 export type RecipeStatusFilter = 'all' | 'want_to_cook' | 'cooked_liked';
 
@@ -15,6 +16,9 @@ interface RecipeFilterBarProps {
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onFridgeSearch?: () => void;
+  extraTags?: string[];
+  selectedTags?: string[];
+  onSelectTags?: (tags: string[]) => void;
 }
 
 export function RecipeFilterBar({
@@ -26,6 +30,9 @@ export function RecipeFilterBar({
   searchQuery = '',
   onSearchChange,
   onFridgeSearch,
+  extraTags = [],
+  selectedTags = [],
+  onSelectTags,
 }: RecipeFilterBarProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
@@ -33,18 +40,21 @@ export function RecipeFilterBar({
   const [draftCategory, setDraftCategory] = useState(selectedCategory);
   const [draftStatus, setDraftStatus] = useState<RecipeStatusFilter>(statusFilter);
   const [draftSearch, setDraftSearch] = useState(searchQuery);
+  const [draftTags, setDraftTags] = useState<string[]>(selectedTags);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const showSearch = !!onSearchChange;
   const filtersActive =
     selectedCategory !== 'all' ||
     statusFilter !== 'all' ||
-    searchQuery.trim().length > 0;
+    searchQuery.trim().length > 0 ||
+    selectedTags.length > 0;
 
   const openPanel = () => {
     setDraftCategory(selectedCategory);
     setDraftStatus(statusFilter);
     setDraftSearch(searchQuery);
+    setDraftTags(selectedTags);
     setOpen(true);
   };
 
@@ -54,6 +64,7 @@ export function RecipeFilterBar({
     onSelectCategory(draftCategory);
     onSelectStatus(draftStatus);
     onSearchChange?.(draftSearch.trim());
+    onSelectTags?.(draftTags);
     setOpen(false);
   };
 
@@ -61,9 +72,11 @@ export function RecipeFilterBar({
     onSelectCategory('all');
     onSelectStatus('all');
     onSearchChange?.('');
+    onSelectTags?.([]);
     setDraftCategory('all');
     setDraftStatus('all');
     setDraftSearch('');
+    setDraftTags([]);
     setOpen(false);
   };
 
@@ -151,6 +164,15 @@ export function RecipeFilterBar({
                   </button>
                 ))}
               </div>
+            </>
+          )}
+
+          {onSelectTags && (
+            <>
+              <p className={`px-1 pt-3 pb-2 text-base font-semibold ${theme.textPrimary}`}>
+                {t('filterShelves')}
+              </p>
+              <ShelfPicker tags={draftTags} onChange={setDraftTags} extraTags={extraTags} />
             </>
           )}
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { useOnline } from '../lib/online';
 import { ChefHat, Mail, Lock, Eye, EyeOff, ArrowLeft, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
@@ -13,6 +14,7 @@ interface AuthScreenProps {
 export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
+  const online = useOnline();
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +31,10 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
 
   const handleOAuth = async (provider: 'google' | 'apple') => {
     setError(null);
+    if (!navigator.onLine) {
+      setError(t('offlineHint'));
+      return;
+    }
     setSocialLoading(provider);
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
@@ -54,6 +60,11 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+
+    if (!navigator.onLine) {
+      setError(t('offlineHint'));
+      return;
+    }
 
     if (!email.trim() || !password.trim()) {
       setError(t('authErrorGeneric'));
@@ -115,6 +126,9 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
         <p className={`${theme.textSecondary} text-base mb-8 text-center`}>
           {mode === 'forgot' ? t('authForgotDesc') : t('authWelcomeDesc')}
         </p>
+        {!online && (
+          <p className={`text-sm mb-4 text-center ${theme.textSecondary}`}>{t('offlineHint')}</p>
+        )}
 
         {/* Mode tabs */}
         {mode !== 'forgot' && (

@@ -1,4 +1,4 @@
-export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr';
+export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr' | 'kk';
 
 export interface Recipe {
   id: string;
@@ -13,6 +13,9 @@ export interface Recipe {
   fat?: number;
   carbs?: number;
   visibleToFriends: boolean;
+  notes?: string;
+  lastCookedAt?: string;
+  tags?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -100,7 +103,19 @@ export interface FullRecipe {
   steps: (RecipeStep & { translations: StepTranslation[] })[];
 }
 
-export type ViewMode = 'recipes' | 'shopping' | 'utilities' | 'add';
+export interface MealPlanEntry {
+  id: string;
+  recipeId: string;
+  dayIndex: number | null;
+  sortOrder: number;
+}
+
+export interface MealPlan {
+  dayCount: number;
+  entries: MealPlanEntry[];
+}
+
+export type ViewMode = 'recipes' | 'shopping' | 'menu' | 'utilities' | 'add';
 
 export interface SpeechRecognitionResultList {
   readonly length: number;

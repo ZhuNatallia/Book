@@ -14,8 +14,11 @@ import { ShoppingListView } from './components/ShoppingListView';
 import { MeasurementConverterView } from './components/MeasurementConverterView';
 import { FridgeSearchView } from './components/FridgeSearchView';
 import { FriendsView } from './components/FriendsView';
+import { MealPlanView } from './components/MealPlanView';
 import { useRecipeStore } from './hooks/useRecipeStore';
 import { FullRecipe } from './types';
+import { useOnline } from './lib/online';
+import { isPresetShelf } from './data/shelves';
 import { ChefHat } from 'lucide-react';
 
 type AppView = BottomNavView;
@@ -24,6 +27,7 @@ function AppContent() {
 	const { t, language } = useLanguage();
 	const { theme } = useTheme();
 	const { session, loading: authLoading } = useAuth();
+	const online = useOnline();
 	const [showOnboarding, setShowOnboarding] = useState(false);
 
 	useEffect(() => {
@@ -56,6 +60,10 @@ function AppContent() {
 		removeFromShoppingList,
 		clearShoppingList,
 		addShoppingItem,
+		mealPlan,
+		saveMealPlan,
+		toggleInMenu,
+		syncing,
 	} = useRecipeStore(session?.user.id);
 
 	const [activeView, setActiveView] = useState<AppView>('recipes');
@@ -65,6 +73,7 @@ function AppContent() {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedCategory, setSelectedCategory] = useState('all');
 	const [statusFilter, setStatusFilter] = useState<RecipeStatusFilter>('all');
+	const [selectedTags, setSelectedTags] = useState<string[]>([]);
 	const [editingRecipe, setEditingRecipe] = useState<FullRecipe | null>(null);
 	const [headerCompact, setHeaderCompact] = useState(false);
 	const filterBarRef = useRef<HTMLDivElement>(null);
@@ -102,8 +111,30 @@ function AppContent() {
 			);
 		}
 
+		if (selectedTags.length > 0) {
+			filtered = filtered.filter((r) =>
+				selectedTags.some((tag) => (r.recipe.tags || []).includes(tag)),
+			);
+		}
+
 		return filtered;
-	}, [recipes, selectedCategory, statusFilter, searchQuery]);
+	}, [recipes, selectedCategory, statusFilter, searchQuery, selectedTags]);
+
+	const extraTags = useMemo(() => {
+		const set = new Set<string>();
+		for (const r of recipes) {
+			for (const tag of r.recipe.tags || []) {
+				if (!isPresetShelf(tag)) set.add(tag);
+			}
+		}
+		return [...set];
+	}, [recipes]);
+
+	useEffect(() => {
+		if (!selectedRecipe) return;
+		const fresh = recipes.find((r) => r.recipe.id === selectedRecipe.recipe.id);
+		if (fresh && fresh !== selectedRecipe) setSelectedRecipe(fresh);
+	}, [recipes, selectedRecipe]);
 
 	if (authLoading) {
 		return (
@@ -169,10 +200,13 @@ function AppContent() {
 					setSelectedCategory('all');
 					setStatusFilter('all');
 					setSearchQuery('');
+					setSelectedTags([]);
 				}}
 				compact={headerCompact && activeView === 'recipes' && !showFridge}
 				userId={session.user.id}
 				email={session.user.email}
+				online={online}
+				syncing={syncing}
 			/>
 
 			<main className='max-w-7xl mx-auto pb-24 pt-4'>
@@ -200,6 +234,9 @@ function AppContent() {
 								searchQuery={searchQuery}
 								onSearchChange={setSearchQuery}
 								onFridgeSearch={() => setShowFridge(true)}
+								extraTags={extraTags}
+								selectedTags={selectedTags}
+								onSelectTags={setSelectedTags}
 							/>
 						</div>
 
@@ -217,6 +254,12 @@ function AppContent() {
 										onDelete={() => deleteRecipe(recipe.recipe.id)}
 										onToggleStatus={() => toggleRecipeStatus(recipe.recipe.id)}
 										onToggleVisibility={() => toggleVisibility(recipe.recipe.id)}
+										onToggleMenu={
+											recipe.recipe.id.startsWith('sample-')
+												? undefined
+												: () => toggleInMenu(recipe.recipe.id)
+										}
+										inMenu={mealPlan.entries.some((e) => e.recipeId === recipe.recipe.id)}
 									/>
 								))}
 							</div>
@@ -254,16 +297,32 @@ function AppContent() {
 					/>
 				)}
 
+				{!showFridge && activeView === 'menu' && (
+					<MealPlanView
+						recipes={recipes}
+						mealPlan={mealPlan}
+						onChange={saveMealPlan}
+						onSendToShopping={(items) => {
+							items.forEach((item) => addToShoppingList(item.name, item.quantity, item.unit));
+							setActiveView('shopping');
+						}}
+					/>
+				)}
+
 				{!showFridge && activeView === 'converter' && (
 					<MeasurementConverterView />
 				)}
 
 				{!showFridge && activeView === 'friends' && session && (
+					online ? (
 					<FriendsView
 						currentUserId={session.user.id}
 						onOpenRecipe={handleOpenRecipe}
 						onCopyRecipe={(recipe) => { void copyRecipe(recipe, language); }}
 					/>
+					) : (
+						<p className={`text-center py-12 ${theme.textSecondary}`}>{t('offlineHint')}</p>
+					)
 				)}
 			</main>
 
@@ -289,6 +348,8 @@ function AppContent() {
 						handleCloseRecipe();
 					}}
 					onAddToShoppingList={handleAddToShoppingList}
+					onUpdate={updateRecipe}
+					extraTags={extraTags}
 					onCopy={
 						selectedRecipe.recipe.userId &&
 						selectedRecipe.recipe.userId !== session.user.id
@@ -306,6 +367,7 @@ function AppContent() {
 				}}
 				onSave={handleSaveRecipe}
 				editingRecipe={editingRecipe}
+				extraTags={extraTags}
 			/>
 		</div>
 	);

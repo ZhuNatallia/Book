@@ -5,6 +5,9 @@ import { FullRecipe } from '../types';
 import { RECIPE_CATEGORIES } from '../data/categories';
 import { supabase } from '../lib/supabase';
 import { ThemedSelect } from './ThemedSelect';
+import { ShelfPicker } from './ShelfPicker';
+import { isSampleRecipeId } from '../lib/recipeDb';
+import { useOnline } from '../lib/online';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle } from 'lucide-react';
 
 interface AddRecipeModalProps {
@@ -12,6 +15,7 @@ interface AddRecipeModalProps {
   onClose: () => void;
   onSave: (recipe: FullRecipe) => void;
   editingRecipe?: FullRecipe | null;
+  extraTags?: string[];
 }
 
 interface ParsedRecipe {
@@ -159,9 +163,11 @@ const IMPORT_NOTE_KEYS: Record<string, string> = {
   social_truncated: 'noteSocialTruncated',
 };
 
-export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRecipeModalProps) {
+export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe, extraTags = [] }: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
+  const online = useOnline();
+  const showPersonalFields = !editingRecipe || !isSampleRecipeId(editingRecipe.recipe.id);
   const unitLabel = (u: string) => (UNIT_KEYS.includes(u) ? t(u) : u);
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [isParsing, setIsParsing] = useState(false);
@@ -186,6 +192,8 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
   const [isCompressing, setIsCompressing] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
 
   const isEditMode = !!editingRecipe;
 
@@ -197,6 +205,7 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
     setSteps([{ instruction: '', timerMinutes: '' }]);
     setImportUrl(''); setParseResult(null); setParseError(null); setLoadingPlatform('');
     setImportingStep(0); setImageUrl(undefined); setIsCompressing(false); setActiveTab('manual');
+    setNotes(''); setTags([]);
   };
 
   // Populate form from editingRecipe when modal opens; reset when opening for a new recipe
@@ -217,6 +226,8 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
       setProtein(r.protein != null ? String(r.protein) : '');
       setFat(r.fat != null ? String(r.fat) : '');
       setCarbs(r.carbs != null ? String(r.carbs) : '');
+      setNotes(editingRecipe.recipe.notes || '');
+      setTags(editingRecipe.recipe.tags || []);
 
       setIngredients(editingRecipe.ingredients.map((ing) => {
         const ingTrans = ing.translations.find((t) => t.language === language) ||
@@ -276,6 +287,10 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
 
   const handleImportUrl = async () => {
     if (!importUrl.trim()) return;
+    if (!navigator.onLine) {
+      setParseError(t('offlineHint'));
+      return;
+    }
     // Clear stale state from a previous import
     setParseResult(null);
     setParseError(null);
@@ -386,6 +401,9 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
         fat: fat ? Number(fat) : undefined,
         carbs: carbs ? Number(carbs) : undefined,
         visibleToFriends: editingRecipe?.recipe.visibleToFriends ?? false,
+        notes: notes.trim() || undefined,
+        lastCookedAt: editingRecipe?.recipe.lastCookedAt,
+        tags,
         userId: editingRecipe?.recipe.userId,
         createdAt: editingRecipe?.recipe.createdAt || now,
         updatedAt: now,
@@ -519,6 +537,20 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                 <textarea value={description} onChange={(e) => setDescription(capitalizeFirst(e.target.value))} rows={2} className={inputCls} placeholder={t('descriptionPlaceholder')} />
               </div>
 
+              {showPersonalFields && (
+              <div>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('myNotes')}</label>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputCls} placeholder={t('notesPlaceholder')} />
+              </div>
+              )}
+
+              {showPersonalFields && (
+              <div>
+                <label className={`block text-base font-medium ${theme.label} mb-2`}>{t('shelves')}</label>
+                <ShelfPicker tags={tags} extraTags={extraTags} onChange={setTags} />
+              </div>
+              )}
+
               {/* Source URL */}
               <div>
                 <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('source')} URL</label>
@@ -650,10 +682,13 @@ export function AddRecipeModal({ isOpen, onClose, onSave, editingRecipe }: AddRe
                   className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-base disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
                   placeholder={t('importUrlPlaceholder')}
                 />
-                <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
+                <button onClick={handleImportUrl} disabled={!importUrl.trim() || isParsing || !online} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
                   <Download className="w-5 h-5" />
                   {t('importAction')}
                 </button>
+                {!online && (
+                  <p className={`mt-2 text-sm ${theme.textSecondary}`}>{t('offlineHint')}</p>
+                )}
               </div>
 
               {/* Loading Animation */}
