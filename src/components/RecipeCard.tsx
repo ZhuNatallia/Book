@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { FullRecipe } from '../types';
 import { RECIPE_CATEGORIES } from '../data/categories';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
+import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
 import {
 	Clock,
 	User,
@@ -20,7 +21,6 @@ import {
 	CalendarCheck,
 } from 'lucide-react';
 import { shelfLabel } from '../data/shelves';
-import { isSampleRecipeId } from '../lib/recipeDb';
 
 interface RecipeCardProps {
 	recipe: FullRecipe;
@@ -51,6 +51,15 @@ export function RecipeCard({
 	const { language, t, tCategory } = useLanguage();
 	const { theme } = useTheme();
 	const isPersonal = isOwner && !isSampleRecipeId(recipe.recipe.id);
+	const [imgFailed, setImgFailed] = useState(false);
+	useEffect(() => {
+		setImgFailed(false);
+	}, [recipe.recipe.imageUrl]);
+	const showPhoto = Boolean(recipe.recipe.imageUrl) && !imgFailed;
+	const kcal = parseFiniteInput(r.calories ?? r.caloriesPerServing);
+	const protein = parseFiniteInput(r.protein);
+	const fat = parseFiniteInput(r.fat);
+	const carbs = parseFiniteInput(r.carbs);
 
 	const translation =
 		recipe.translations.find((tr) => tr.language === language) ||
@@ -68,12 +77,13 @@ export function RecipeCard({
 			className={`group relative flex flex-col h-full ${theme.card} overflow-hidden`}
 		>
 			<div className='relative aspect-[4/3] shrink-0 overflow-hidden'>
-				{recipe.recipe.imageUrl ? (
+				{showPhoto ? (
 					<img
 						src={recipe.recipe.imageUrl}
 						alt={translation.title}
 						referrerPolicy='no-referrer'
 						className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500'
+						onError={() => setImgFailed(true)}
 					/>
 				) : (
 					<div
@@ -175,26 +185,28 @@ export function RecipeCard({
 				</div>
 
 				<div className='absolute bottom-3 left-3 flex items-center gap-1 text-[10px] font-bold text-zinc-800 flex-wrap z-10'>
+					{kcal != null && (
 					<div className='flex items-center gap-0.5 bg-orange-500 text-white px-1.5 py-0.5 rounded-md shadow-sm'>
 						<Flame className='w-3 h-3' />
 						<span>
-							{r.calories || r.caloriesPerServing}{' '}
+							{kcal}{' '}
 							{t('kcal')}
 						</span>
 					</div>
-					{r.protein && (
+					)}
+					{protein != null && (
 						<span className='bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm border border-zinc-200/50'>
-							{`${t('proteinShort')}: ${r.protein}${t('g')}`}
+							{`${t('proteinShort')}: ${protein}${t('g')}`}
 						</span>
 					)}
-					{r.fat && (
+					{fat != null && (
 						<span className='bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm border border-zinc-200/50'>
-							{`${t('fatShort')}: ${r.fat}${t('g')}`}
+							{`${t('fatShort')}: ${fat}${t('g')}`}
 						</span>
 					)}
-					{r.carbs && (
+					{carbs != null && (
 						<span className='bg-white/95 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm border border-zinc-200/50'>
-							{`${t('carbsShort')}: ${r.carbs}${t('g')}`}
+							{`${t('carbsShort')}: ${carbs}${t('g')}`}
 						</span>
 					)}
 				</div>

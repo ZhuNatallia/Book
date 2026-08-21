@@ -1,5 +1,6 @@
 import { FullRecipe, MealPlan, PantryItem, ShoppingItem } from '../types';
 import { mondayISO } from './week';
+import { isDataUrl } from './media';
 
 export type SyncJob =
   | { type: 'persistRecipe'; recipe: FullRecipe; touchedAt: string }
@@ -74,11 +75,27 @@ export function loadBookCache(userId: string): BookCache | null {
   }
 }
 
+function stripDataUrlImages(cache: BookCache): BookCache {
+  return {
+    ...cache,
+    recipes: cache.recipes.map((full) =>
+      isDataUrl(full.recipe.imageUrl)
+        ? { ...full, recipe: { ...full.recipe, imageUrl: undefined } }
+        : full,
+    ),
+  };
+}
+
 export function saveBookCache(userId: string, cache: BookCache) {
+  const k = key(userId);
   try {
-    localStorage.setItem(key(userId), JSON.stringify(cache));
-  } catch (err) {
-    console.error(err);
+    localStorage.setItem(k, JSON.stringify(cache));
+  } catch {
+    try {
+      localStorage.setItem(k, JSON.stringify(stripDataUrlImages(cache)));
+    } catch (err) {
+      console.error(err);
+    }
   }
 }
 

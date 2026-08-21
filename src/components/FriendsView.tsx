@@ -13,7 +13,7 @@ import { UserPlus, Users, ArrowLeft, Loader2, Pencil, Search } from 'lucide-reac
 interface FriendsViewProps {
   currentUserId: string;
   onOpenRecipe: (recipe: FullRecipe) => void;
-  onCopyRecipe: (recipe: FullRecipe) => void;
+  onCopyRecipe: (recipe: FullRecipe) => boolean;
 }
 
 function friendLabel(friend: FriendProfile) {
@@ -290,8 +290,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                     onDelete={() => undefined}
                     onToggleStatus={() => undefined}
                     onCopy={() => {
-                      onCopyRecipe(recipe);
-                      setMessage(t('savedToMyBook'));
+                      if (onCopyRecipe(recipe)) setMessage(t('savedToMyBook'));
                     }}
                   />
                 ))}

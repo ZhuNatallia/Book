@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { compressImageFile, isDataUrl, uploadAvatar } from '../lib/media';
 import { Camera, Loader2 } from 'lucide-react';
 
 const USERNAME_RE = /^[a-z0-9._]{3,30}$/;
@@ -10,33 +11,6 @@ function normalizeUsername(value: string) {
   return value.trim().replace(/^@+/, '').toLowerCase();
 }
 
-function compressAvatar(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onerror = reject;
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      const MAX = 400;
-      let { width, height } = img;
-      if (width > MAX || height > MAX) {
-        if (width >= height) {
-          height = Math.round((height * MAX) / width);
-          width = MAX;
-        } else {
-          width = Math.round((width * MAX) / height);
-          height = MAX;
-        }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
-    };
-    img.src = objectUrl;
-  });
-}
 
 function nameInitial(label: string) {
   const letter = label.replace(/^@/, '').trim().charAt(0);
@@ -108,7 +82,19 @@ export function ProfileSettings({ userId, email }: ProfileSettingsProps) {
       setMyPhone(profile?.phone ?? '');
       setMyName(profile?.display_name ?? email?.split('@')[0] ?? '');
       setMyUsername(profile?.username ?? '');
-      setMyAvatar(profile?.avatar_url ?? null);
+      const avatar = profile?.avatar_url ?? null;
+      if (avatar && isDataUrl(avatar)) {
+        try {
+          const url = await uploadAvatar(userId, avatar);
+          await supabase.from('profiles').update({ avatar_url: url }).eq('id', userId);
+          if (!cancelled) setMyAvatar(url);
+        } catch (err) {
+          console.error(err);
+          if (!cancelled) setMyAvatar(avatar);
+        }
+      } else if (!cancelled) {
+        setMyAvatar(avatar);
+      }
     })();
     return () => {
       cancelled = true;
@@ -118,7 +104,7 @@ export function ProfileSettings({ userId, email }: ProfileSettingsProps) {
   const handleAvatarFile = async (file?: File) => {
     if (!file) return;
     try {
-      setMyAvatar(await compressAvatar(file));
+      setMyAvatar(await compressImageFile(file, 400));
     } catch (err) {
       console.error(err);
       setError(t('authErrorGeneric'));
@@ -135,13 +121,25 @@ export function ProfileSettings({ userId, email }: ProfileSettingsProps) {
     setSaving(true);
     setError(null);
     setSaved(false);
+    let avatarUrl = myAvatar;
+    try {
+      if (avatarUrl && isDataUrl(avatarUrl)) {
+        avatarUrl = await uploadAvatar(userId, avatarUrl);
+        setMyAvatar(avatarUrl);
+      }
+    } catch (err) {
+      console.error(err);
+      setSaving(false);
+      setError(t('authErrorGeneric'));
+      return;
+    }
     const { error: updateError } = await supabase.from('profiles').upsert({
       id: userId,
       email: email ?? null,
       phone: myPhone.trim() || null,
       display_name: myName.trim() || null,
       username: username || null,
-      avatar_url: myAvatar,
+      avatar_url: avatarUrl,
       updated_at: new Date().toISOString(),
     });
     setSaving(false);

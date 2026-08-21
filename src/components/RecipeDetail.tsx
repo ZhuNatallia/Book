@@ -3,7 +3,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
 import { ShelfPicker } from './ShelfPicker';
-import { isSampleRecipeId } from '../lib/recipeDb';
+import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
 import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2 } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
@@ -47,7 +47,7 @@ interface RecipeDetailProps {
 	onAddToShoppingList: (name: string, qty: number, unit: string) => void;
 	onUpdate?: (recipe: FullRecipe) => void;
 	readOnly?: boolean;
-	onCopy?: () => void;
+	onCopy?: () => boolean | void;
 	extraTags?: string[];
 }
 
@@ -76,6 +76,8 @@ export function RecipeDetail({
 	const [copiedToBook, setCopiedToBook] = useState(false);
 	const isPersonal = !readOnly && !isSampleRecipeId(recipe.recipe.id);
 	const [notes, setNotes] = useState(recipe.recipe.notes || '');
+	const [imgFailed, setImgFailed] = useState(false);
+	const [photoOpen, setPhotoOpen] = useState(false);
 	const [currentStepIndex, setCurrentStepIndex] = useState(0);
 	const [isSpeaking, setIsSpeaking] = useState(false);
 	const [timer, setTimer] = useState<{ stepId: string; remaining: number; running: boolean } | null>(null);
@@ -152,15 +154,22 @@ export function RecipeDetail({
 		setNotes(recipe.recipe.notes || '');
 		setCurrentStepIndex(0);
 		setTimer(null);
+		setImgFailed(false);
+		setPhotoOpen(false);
 		if ('speechSynthesis' in window) speechSynthesis.cancel();
 		setIsSpeaking(false);
-	}, [recipe.recipe.id, recipe.recipe.notes]);
+	}, [recipe.recipe.id, recipe.recipe.notes, recipe.recipe.imageUrl]);
 	const formatUnit = (unit: string) => {
 		if (!unit) return '';
 		const u = unit.toLowerCase().trim();
 		return UNIT_KEYS.includes(u) ? t(u) : unit;
 	};
 	const r = recipe.recipe as any;
+	const kcal = parseFiniteInput(r.caloriesPerServing ?? r.calories);
+	const proteinVal = parseFiniteInput(r.protein);
+	const fatVal = parseFiniteInput(r.fat);
+	const carbsVal = parseFiniteInput(r.carbs);
+	const factor = Number.isFinite(scaling) ? scaling : 1;
 
 	const translation =
 		recipe.translations.find((tr) => tr.language === language) ||
@@ -180,7 +189,8 @@ export function RecipeDetail({
 	const handleScaling = (newServings: number) => {
 		if (newServings < 1) return;
 		setServings(newServings);
-		setScaling(newServings / (recipe.recipe.servings || 4));
+		const base = parseFiniteInput(recipe.recipe.servings) || 4;
+		setScaling(newServings / base);
 	};
 
 	const getIngredientName = (ingredient: (typeof recipe.ingredients)[0]) => {
@@ -296,15 +306,21 @@ export function RecipeDetail({
 		>
 			{/* Header Image */}
 			<div className='relative h-64 sm:h-80 flex-shrink-0'>
-				{recipe.recipe.imageUrl ? (
-					<img
-						src={recipe.recipe.imageUrl}
-						alt={translation.title}
-						// Imported photos are hotlinked, and many recipe sites answer 403 to a
-						// request that carries our Referer
-						referrerPolicy='no-referrer'
-						className='w-full h-full object-cover'
-					/>
+				{recipe.recipe.imageUrl && !imgFailed ? (
+					<button
+						type="button"
+						onClick={() => setPhotoOpen(true)}
+						className="w-full h-full bg-black/10"
+						title={translation.title}
+					>
+						<img
+							src={recipe.recipe.imageUrl}
+							alt={translation.title}
+							referrerPolicy="no-referrer"
+							className="w-full h-full object-contain"
+							onError={() => setImgFailed(true)}
+						/>
+					</button>
 				) : (
 					<div
 						className={`w-full h-full ${theme.bgPrimary} flex flex-col items-center justify-center relative`}
@@ -368,7 +384,7 @@ export function RecipeDetail({
 				{readOnly && onCopy && (
 				<button
 					onClick={() => {
-						onCopy();
+						if (onCopy?.() === false) return;
 						setCopiedToBook(true);
 						window.setTimeout(() => setCopiedToBook(false), 2500);
 					}}
@@ -483,28 +499,28 @@ export function RecipeDetail({
 					</div>
 
 					{/* Интегрированный блок динамического расчета КБЖУ */}
-					{(r.caloriesPerServing || r.calories) && (
+					{(kcal != null || proteinVal != null || fatVal != null || carbsVal != null) && (
 						<div className='flex items-center gap-2 text-xs sm:text-sm font-medium flex-wrap'>
+							{kcal != null && (
 							<span className='flex items-center gap-1 text-orange-600 dark:text-orange-400 bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/20 shadow-sm'>
 								<Flame className='w-4 h-4 text-orange-500' />
-								{Math.round(
-									(r.caloriesPerServing || r.calories) * scaling,
-								)}{' '}
+								{Math.round(kcal * factor)}{' '}
 								{t('kcal')}
 							</span>
-							{r.protein && (
+							)}
+							{proteinVal != null && (
 								<span className='text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/20'>
-									{`${t('proteinShort')}: ${Math.round(r.protein * scaling)}${t('g')}`}
+									{`${t('proteinShort')}: ${Math.round(proteinVal * factor)}${t('g')}`}
 								</span>
 							)}
-							{r.fat && (
+							{fatVal != null && (
 								<span className='text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20'>
-									{`${t('fatShort')}: ${Math.round(r.fat * scaling)}${t('g')}`}
+									{`${t('fatShort')}: ${Math.round(fatVal * factor)}${t('g')}`}
 								</span>
 							)}
-							{r.carbs && (
+							{carbsVal != null && (
 								<span className='text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-1 rounded-lg border border-green-500/20'>
-									{`${t('carbsShort')}: ${Math.round(r.carbs * scaling)}${t('g')}`}
+									{`${t('carbsShort')}: ${Math.round(carbsVal * factor)}${t('g')}`}
 								</span>
 							)}
 						</div>
@@ -710,6 +726,20 @@ export function RecipeDetail({
 					)}
 				</div>
 			</div>
+			{photoOpen && recipe.recipe.imageUrl && (
+				<button
+					type="button"
+					className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center p-3"
+					onClick={() => setPhotoOpen(false)}
+				>
+					<img
+						src={recipe.recipe.imageUrl}
+						alt={translation.title}
+						referrerPolicy="no-referrer"
+						className="max-w-full max-h-full object-contain"
+					/>
+				</button>
+			)}
 		</div>
 	);
 }

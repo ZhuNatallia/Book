@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['pwa-icon.svg'],
       manifest: {
-        name: 'SmartRecipe Hub',
-        short_name: 'SmartRecipe',
+        name: 'My Recipe Book',
+        short_name: 'Recipe Book',
         description: 'Personal cookbook',
         theme_color: '#ff9d6a',
         background_color: '#eef2f6',

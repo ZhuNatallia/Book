@@ -2,8 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
-import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User, CalendarDays } from 'lucide-react';
+import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User, CalendarDays, MessageCircle, Sparkles } from 'lucide-react';
 import { ProfileSettings } from './ProfileSettings';
+import { FeedbackForm } from './FeedbackForm';
+import { PlanSettings } from './PlanSettings';
+import { usePlan } from '../i18n/PlanContext';
 
 export type BottomNavView = 'recipes' | 'shopping' | 'menu' | 'converter' | 'friends';
 
@@ -16,9 +19,11 @@ interface HeaderProps {
   email?: string;
   online?: boolean;
   syncing?: boolean;
+  openSettingsTo?: 'plan' | null;
+  onOpenSettingsConsumed?: () => void;
 }
 
-type SettingsView = 'main' | 'language' | 'theme' | 'profile';
+type SettingsView = 'main' | 'language' | 'theme' | 'profile' | 'feedback' | 'plan';
 
 export function Header({
   onAddRecipe,
@@ -29,9 +34,12 @@ export function Header({
   email,
   online = true,
   syncing = false,
+  openSettingsTo = null,
+  onOpenSettingsConsumed,
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId } = useTheme();
+  const { isPlus } = usePlan();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>('main');
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -47,6 +55,13 @@ export function Header({
     if (showSettings) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showSettings]);
+
+  useEffect(() => {
+    if (openSettingsTo !== 'plan') return;
+    setShowSettings(true);
+    setSettingsView('plan');
+    onOpenSettingsConsumed?.();
+  }, [openSettingsTo, onOpenSettingsConsumed]);
 
   const languages: { code: Language; flag: string; label: string }[] = [
     { code: 'ru', flag: '🇷🇺', label: 'Русский' },
@@ -140,6 +155,21 @@ export function Header({
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
+                          onClick={() => setSettingsView('plan')}
+                          className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Sparkles className={`w-5 h-5 ${theme.textAccent}`} />
+                            <span className="text-base font-medium">{t('planTitle')}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium ${theme.textSecondary}`}>
+                              {isPlus ? t('planPlus') : t('planFree')}
+                            </span>
+                            <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
+                          </div>
+                        </button>
+                        <button
                           onClick={() => setSettingsView('language')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
@@ -156,6 +186,16 @@ export function Header({
                           <div className="flex items-center gap-3">
                             <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${themeOptions.find(t => t.id === themeId)?.preview || 'from-amber-400 to-rose-400'}`} />
                             <span className="text-base font-medium">{t('themeLabel')}</span>
+                          </div>
+                          <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
+                        </button>
+                        <button
+                          onClick={() => setSettingsView('feedback')}
+                          className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <MessageCircle className={`w-5 h-5 ${theme.textAccent}`} />
+                            <span className="text-base font-medium">{t('feedbackTitle')}</span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
@@ -181,6 +221,20 @@ export function Header({
                         </p>
                       </div>
                       <ProfileSettings userId={userId} email={email} />
+                    </>
+                  )}
+
+                  {settingsView === 'plan' && (
+                    <>
+                      <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
+                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                          <ArrowLeft className="w-4 h-4" />
+                        </button>
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('planTitle')}
+                        </p>
+                      </div>
+                      <PlanSettings />
                     </>
                   )}
 
@@ -216,6 +270,20 @@ export function Header({
                           </button>
                         ))}
                       </div>
+                    </>
+                  )}
+
+                  {settingsView === 'feedback' && (
+                    <>
+                      <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
+                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                          <ArrowLeft className="w-4 h-4" />
+                        </button>
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('feedbackTitle')}
+                        </p>
+                      </div>
+                      <FeedbackForm userId={userId} email={email} online={online} />
                     </>
                   )}
 

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 import { ThemeProvider, useTheme } from './i18n/ThemeContext';
 import { AuthProvider, useAuth } from './i18n/AuthContext';
+import { PlanProvider, usePlan, ownRecipeCount } from './i18n/PlanContext';
 import { Header, BottomNav, BottomNavView } from './components/Header';
 import { Onboarding } from './components/Onboarding';
 import { AuthScreen } from './components/AuthScreen';
@@ -29,20 +30,17 @@ function AppContent() {
 	const { t, language } = useLanguage();
 	const { theme } = useTheme();
 	const { session, loading: authLoading } = useAuth();
+	const { canAddRecipe, syncRecipeCount } = usePlan();
 	const online = useOnline();
-	const [showOnboarding, setShowOnboarding] = useState(false);
+	const [welcomeDone, setWelcomeDone] = useState(false);
+	const hadSession = useRef(false);
 
 	useEffect(() => {
-		const seen = localStorage.getItem('smartrecipe-onboarding-seen');
-		if (!seen) {
-			setShowOnboarding(true);
+		if (hadSession.current && !session) {
+			setWelcomeDone(false);
 		}
-	}, []);
-
-	const completeOnboarding = () => {
-		localStorage.setItem('smartrecipe-onboarding-seen', 'true');
-		setShowOnboarding(false);
-	};
+		hadSession.current = Boolean(session);
+	}, [session]);
 
 	const handleSignOut = async () => {
 		await supabase.auth.signOut();
@@ -71,6 +69,10 @@ function AppContent() {
 		syncing,
 	} = useRecipeStore(session?.user.id);
 
+	useEffect(() => {
+		syncRecipeCount(ownRecipeCount(recipes));
+	}, [recipes, syncRecipeCount]);
+
 	const [activeView, setActiveView] = useState<AppView>('recipes');
 	const [showFridge, setShowFridge] = useState(false);
 	const [selectedRecipe, setSelectedRecipe] = useState<FullRecipe | null>(null);
@@ -82,6 +84,7 @@ function AppContent() {
 	const [sortBy, setSortBy] = useState<RecipeSort>('newest');
 	const [editingRecipe, setEditingRecipe] = useState<FullRecipe | null>(null);
 	const [headerCompact, setHeaderCompact] = useState(false);
+	const [openSettingsTo, setOpenSettingsTo] = useState<'plan' | null>(null);
 	const filterBarRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -175,11 +178,10 @@ function AppContent() {
 		);
 	}
 
-	if (showOnboarding) {
-		return <Onboarding onComplete={completeOnboarding} />;
-	}
-
 	if (!session) {
+		if (!welcomeDone) {
+			return <Onboarding onComplete={() => setWelcomeDone(true)} />;
+		}
 		return <AuthScreen />;
 	}
 
@@ -206,6 +208,10 @@ function AppContent() {
 		if (editingRecipe) {
 			updateRecipe(recipe);
 		} else {
+			if (!canAddRecipe) {
+				setOpenSettingsTo('plan');
+				return;
+			}
 			addRecipe(recipe);
 		}
 		setEditingRecipe(null);
@@ -214,6 +220,20 @@ function AppContent() {
 	const openAddModal = () => {
 		setShowAddModal(true);
 		setEditingRecipe(null);
+	};
+
+	const openPlanSettings = () => {
+		setShowAddModal(false);
+		setOpenSettingsTo('plan');
+	};
+
+	const handleCopyRecipe = (recipe: FullRecipe) => {
+		if (!canAddRecipe) {
+			openPlanSettings();
+			return false;
+		}
+		void copyRecipe(recipe, language);
+		return true;
 	};
 
 	return (
@@ -236,6 +256,8 @@ function AppContent() {
 				email={session.user.email}
 				online={online}
 				syncing={syncing}
+				openSettingsTo={openSettingsTo}
+				onOpenSettingsConsumed={() => setOpenSettingsTo(null)}
 			/>
 
 			<main className='max-w-7xl mx-auto pb-24 pt-4'>
@@ -352,7 +374,7 @@ function AppContent() {
 					<FriendsView
 						currentUserId={session.user.id}
 						onOpenRecipe={handleOpenRecipe}
-						onCopyRecipe={(recipe) => { void copyRecipe(recipe, language); }}
+						onCopyRecipe={handleCopyRecipe}
 					/>
 					) : (
 						<p className={`text-center py-12 ${theme.textSecondary}`}>{t('offlineHint')}</p>
@@ -387,7 +409,7 @@ function AppContent() {
 					onCopy={
 						selectedRecipe.recipe.userId &&
 						selectedRecipe.recipe.userId !== session.user.id
-							? () => { void copyRecipe(selectedRecipe, language); }
+							? () => handleCopyRecipe(selectedRecipe)
 							: undefined
 					}
 				/>
@@ -408,6 +430,7 @@ function AppContent() {
 					setEditingRecipe(null);
 					setSelectedRecipe(recipe);
 				}}
+				onNeedPlan={openPlanSettings}
 			/>
 		</div>
 	);
@@ -418,10 +441,19 @@ function App() {
 		<ThemeProvider>
 			<AuthProvider>
 				<LanguageProvider>
-					<AppContent />
+					<AppWithPlan />
 				</LanguageProvider>
 			</AuthProvider>
 		</ThemeProvider>
+	);
+}
+
+function AppWithPlan() {
+	const { session } = useAuth();
+	return (
+		<PlanProvider userId={session?.user.id}>
+			<AppContent />
+		</PlanProvider>
 	);
 }
 

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { isDataUrl, resolveRecipeImageForDb, removeRecipePhoto, uploadRecipePhoto } from './media';
 import {
   FullRecipe,
   Language,
@@ -75,10 +76,21 @@ function asLanguage(value: string): Language {
   return value as Language;
 }
 
-function num(value: number | string | null | undefined): number | undefined {
+export function parseFiniteInput(value: unknown): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
-  const n = Number(value);
+  const s = String(value).trim().replace(/,/g, '.').replace(/[–—]/g, '-');
+  if (/^nan$/i.test(s)) return undefined;
+  const range = s.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+  if (range) {
+    const mid = (Number(range[1]) + Number(range[2])) / 2;
+    return Number.isFinite(mid) ? Math.round(mid) : undefined;
+  }
+  const n = Number(s.match(/-?\d+(?:\.\d+)?/)?.[0]);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function num(value: number | string | null | undefined): number | undefined {
+  return parseFiniteInput(value);
 }
 
 export function mapRowToFullRecipe(row: RecipeRow): FullRecipe {
@@ -282,19 +294,20 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
   const recipeId = isUuid(full.recipe.id) ? full.recipe.id : crypto.randomUUID();
   const now = new Date().toISOString();
   const r = full.recipe;
+  const imageUrl = await resolveRecipeImageForDb(userId, recipeId, r.imageUrl);
 
   const { error: recipeError } = await supabase.from('recipes').upsert({
     id: recipeId,
     user_id: userId,
     category: r.category,
     status: r.status,
-    image_url: r.imageUrl || null,
+    image_url: imageUrl,
     source_url: r.sourceUrl || null,
     servings: r.servings,
-    calories_per_serving: r.calories ?? null,
-    protein_per_serving: r.protein ?? null,
-    carbs_per_serving: r.carbs ?? null,
-    fat_per_serving: r.fat ?? null,
+    calories_per_serving: parseFiniteInput(r.calories) ?? null,
+    protein_per_serving: parseFiniteInput(r.protein) ?? null,
+    carbs_per_serving: parseFiniteInput(r.carbs) ?? null,
+    fat_per_serving: parseFiniteInput(r.fat) ?? null,
     visible_to_friends: r.visibleToFriends ?? false,
     notes: r.notes || null,
     last_cooked_at: r.lastCookedAt || null,
@@ -398,6 +411,7 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
       ...r,
       id: recipeId,
       userId,
+      imageUrl: imageUrl ?? undefined,
       visibleToFriends: r.visibleToFriends ?? false,
       notes: r.notes,
       lastCookedAt: r.lastCookedAt,
@@ -429,7 +443,43 @@ export async function updateRecipeFlags(recipeId: string, patch: RecipeFlagPatch
   if (error) throw error;
 }
 
-export async function deleteRemoteRecipe(recipeId: string) {
+export async function deleteRemoteRecipe(recipeId: string, userId?: string) {
+  if (userId) {
+    try {
+      await removeRecipePhoto(userId, recipeId);
+    } catch (err) {
+      console.error(err);
+    }
+  }
   const { error } = await supabase.from('recipes').delete().eq('id', recipeId);
   if (error) throw error;
+}
+
+export async function migrateDataUrlRecipeImages(
+  userId: string,
+  recipes: FullRecipe[],
+): Promise<FullRecipe[]> {
+  const next: FullRecipe[] = [];
+  let changed = false;
+  for (const full of recipes) {
+    const raw = full.recipe.imageUrl;
+    if (!isDataUrl(raw) || !isUuid(full.recipe.id)) {
+      next.push(full);
+      continue;
+    }
+    try {
+      const url = await uploadRecipePhoto(userId, full.recipe.id, raw);
+      const { error } = await supabase
+        .from('recipes')
+        .update({ image_url: url, updated_at: new Date().toISOString() })
+        .eq('id', full.recipe.id);
+      if (error) throw error;
+      next.push({ ...full, recipe: { ...full.recipe, imageUrl: url } });
+      changed = true;
+    } catch (err) {
+      console.error(err);
+      next.push(full);
+    }
+  }
+  return changed ? next : recipes;
 }

@@ -19,6 +19,7 @@ import {
   translateCloneToLang,
   updateRecipeFlags,
   RecipeFlagPatch,
+  migrateDataUrlRecipeImages,
 } from '../lib/recipeDb';
 import { fetchMealPlan, fetchMealPlanUpdatedAt, persistMealPlan } from '../lib/mealPlanDb';
 import {
@@ -38,6 +39,7 @@ import {
 } from '../lib/localCache';
 import { ingredientMergeKey, mergeQtyUnit, pickDisplayName } from '../lib/ingredientMerge';
 import { mondayISO } from '../lib/week';
+import { isQuotaError } from '../lib/plan';
 
 const SNAPSHOT_TYPES = new Set<SyncJob['type']>([
   'persistMealPlan',
@@ -224,7 +226,7 @@ export function useRecipeStore(userId?: string) {
           }
           await updateRecipeFlags(job.recipeId, job.patch);
         } else if (job.type === 'deleteRecipe') {
-          await deleteRemoteRecipe(job.recipeId);
+          await deleteRemoteRecipe(job.recipeId, userId);
         } else if (job.type === 'persistMealPlan') {
           const serverAt = await fetchMealPlanUpdatedAt(userId);
           if (newer(serverAt, job.touchedAt)) {
@@ -247,8 +249,8 @@ export function useRecipeStore(userId?: string) {
           }
           await persistPantry(userId, job.items);
         }
-      } catch {
-        remaining.push(job);
+      } catch (err) {
+        if (!isQuotaError(err)) remaining.push(job);
       }
     }
     queueRef.current = remaining;
@@ -286,7 +288,7 @@ export function useRecipeStore(userId?: string) {
           }
           await updateRecipeFlags(job.recipeId, job.patch);
         } else if (job.type === 'deleteRecipe') {
-          await deleteRemoteRecipe(job.recipeId);
+          await deleteRemoteRecipe(job.recipeId, userId);
         } else if (job.type === 'persistMealPlan') {
           const serverAt = await fetchMealPlanUpdatedAt(userId);
           if (newer(serverAt, job.touchedAt)) {
@@ -309,8 +311,8 @@ export function useRecipeStore(userId?: string) {
           }
           await persistPantry(userId, job.items);
         }
-      } catch {
-        enqueue(job);
+      } catch (err) {
+        if (!isQuotaError(err)) enqueue(job);
       }
     },
     [userId, enqueue],
@@ -402,11 +404,20 @@ export function useRecipeStore(userId?: string) {
         if (cancelled) return;
         const jobs = queueRef.current;
         if (remoteRes.status === 'fulfilled') {
-          const remote = remoteRes.value;
+          let remote = remoteRes.value;
           if (hasRecipeJobs(jobs)) {
             setRecipes([...sampleRecipes, ...applyPendingJobs(remote, jobs)]);
           } else {
             setRecipes([...sampleRecipes, ...remote]);
+          }
+          if (navigator.onLine && remote.some((r) => r.recipe.imageUrl?.startsWith('data:'))) {
+            remote = await migrateDataUrlRecipeImages(userId, remote);
+            if (cancelled) return;
+            if (hasRecipeJobs(queueRef.current)) {
+              setRecipes([...sampleRecipes, ...applyPendingJobs(remote, queueRef.current)]);
+            } else {
+              setRecipes([...sampleRecipes, ...remote]);
+            }
           }
         }
         if (planRes.status === 'fulfilled' && !hasJob(jobs, 'persistMealPlan')) {

@@ -6,9 +6,12 @@ import { RECIPE_CATEGORIES } from '../data/categories';
 import { supabase } from '../lib/supabase';
 import { ThemedSelect } from './ThemedSelect';
 import { ShelfPicker } from './ShelfPicker';
-import { isSampleRecipeId } from '../lib/recipeDb';
+import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
+import { compressImageFile } from '../lib/media';
 import { useOnline } from '../lib/online';
 import { normalizeSourceUrl } from '../lib/urlNorm';
+import { usePlan } from '../i18n/PlanContext';
+import { isQuotaError } from '../lib/plan';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle } from 'lucide-react';
 
 interface AddRecipeModalProps {
@@ -19,6 +22,7 @@ interface AddRecipeModalProps {
   extraTags?: string[];
   existingRecipes?: FullRecipe[];
   onOpenExisting?: (recipe: FullRecipe) => void;
+  onNeedPlan?: () => void;
 }
 
 interface ParsedRecipe {
@@ -41,33 +45,6 @@ interface ParsedRecipe {
 const capitalizeFirst = (s: string): string =>
   s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s;
 
-function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onerror = reject;
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      const MAX = 1200;
-      let { width, height } = img;
-      if (width > MAX || height > MAX) {
-        if (width >= height) {
-          height = Math.round((height * MAX) / width);
-          width = MAX;
-        } else {
-          width = Math.round((width * MAX) / height);
-          height = MAX;
-        }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
-    };
-    img.src = objectUrl;
-  });
-}
 
 function detectCategory(text: string): string {
   const t = text.toLowerCase();
@@ -174,9 +151,11 @@ export function AddRecipeModal({
   extraTags = [],
   existingRecipes = [],
   onOpenExisting,
+  onNeedPlan,
 }: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
+  const { canAddRecipe, canImport, recordImport } = usePlan();
   const online = useOnline();
   const showPersonalFields = !editingRecipe || !isSampleRecipeId(editingRecipe.recipe.id);
   const unitLabel = (u: string) => (UNIT_KEYS.includes(u) ? t(u) : u);
@@ -284,7 +263,7 @@ export function AddRecipeModal({
     if (!file || !file.type.startsWith('image/')) return;
     setIsCompressing(true);
     try {
-      const dataUrl = await compressImage(file);
+      const dataUrl = await compressImageFile(file, 1200);
       setImageUrl(dataUrl);
     } catch {
       // compression failed — fall back to original file
@@ -299,6 +278,10 @@ export function AddRecipeModal({
 
   const handleImportUrl = async (ignoreDuplicate = false) => {
     if (!importUrl.trim()) return;
+    if (!canImport) {
+      onNeedPlan?.();
+      return;
+    }
     if (!navigator.onLine) {
       setParseError(t('offlineHint'));
       return;
@@ -358,7 +341,7 @@ export function AddRecipeModal({
         servings: data.servings,
         ingredients: parsedIngredients,
         steps: parsedSteps,
-        imageUrl: data.imageUrl,
+        imageUrl: typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http') ? data.imageUrl : undefined,
         calories: data.calories,
         protein: data.protein,
         fat: data.fat,
@@ -367,7 +350,14 @@ export function AddRecipeModal({
         translated: data.translated,
         note: data.note,
       });
-      setImageUrl(data.imageUrl ?? undefined);
+      setImageUrl(
+        typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http') ? data.imageUrl : undefined,
+      );
+      try {
+        await recordImport(url);
+      } catch (err) {
+        if (!isQuotaError(err)) console.error(err);
+      }
     } catch (e: unknown) {
       setParseResult(null);
       setImageUrl(undefined);
@@ -386,11 +376,11 @@ export function AddRecipeModal({
     setTitle(parseResult.title);
     setDescription(parseResult.description || '');
     setCategory(parseResult.category);
-    setServings(parseResult.servings || '');
-    setCalories(parseResult.calories || '');
-    setProtein(parseResult.protein  || '');
-    setFat(parseResult.fat          || '');
-    setCarbs(parseResult.carbs      || '');
+    setServings(parseFiniteInput(parseResult.servings)?.toString() || parseResult.servings || '');
+    setCalories(parseFiniteInput(parseResult.calories)?.toString() || '');
+    setProtein(parseFiniteInput(parseResult.protein)?.toString() || '');
+    setFat(parseFiniteInput(parseResult.fat)?.toString() || '');
+    setCarbs(parseFiniteInput(parseResult.carbs)?.toString() || '');
     setIngredients(
       parseResult.ingredients.length
         ? parseResult.ingredients.map(i => ({ ...i, quantity: String(i.quantity) }))
@@ -410,9 +400,13 @@ export function AddRecipeModal({
 
   const handleSave = () => {
     if (!title.trim() || !category) return;
+    if (!isEditMode && !canAddRecipe) {
+      onNeedPlan?.();
+      return;
+    }
     const recipeId = editingRecipe?.recipe.id || crypto.randomUUID();
     const now = new Date().toISOString();
-    const servingsNum = parseFloat(servings) || 1;
+    const servingsNum = parseFiniteInput(servings) || 1;
 
     const newRecipe: FullRecipe = {
       recipe: {
@@ -422,10 +416,10 @@ export function AddRecipeModal({
         imageUrl,
         sourceUrl: sourceUrl || undefined,
         servings: servingsNum,
-        calories: calories ? Number(calories) : undefined,
-        protein: protein ? Number(protein) : undefined,
-        fat: fat ? Number(fat) : undefined,
-        carbs: carbs ? Number(carbs) : undefined,
+        calories: parseFiniteInput(calories),
+        protein: parseFiniteInput(protein),
+        fat: parseFiniteInput(fat),
+        carbs: parseFiniteInput(carbs),
         visibleToFriends: editingRecipe?.recipe.visibleToFriends ?? false,
         notes: notes.trim() || undefined,
         lastCookedAt: editingRecipe?.recipe.lastCookedAt,
@@ -494,6 +488,18 @@ export function AddRecipeModal({
           </button>
         </div>
 
+        {!isEditMode && !canAddRecipe && (
+          <div className={`mx-4 mt-3 px-3 py-2 rounded-xl flex items-start gap-2 ${theme.bgSecondary}`}>
+            <AlertCircle className={`w-4 h-4 mt-0.5 shrink-0 ${theme.textAccent}`} />
+            <div className="flex-1">
+              <p className={`text-sm ${theme.textPrimary}`}>{t('planLimitRecipes')}</p>
+              <button type="button" onClick={() => onNeedPlan?.()} className={`mt-1 text-sm font-medium ${theme.textAccent}`}>
+                {t('planOpen')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
         {!isEditMode && (
           <div className={`flex gap-2 p-2 border-b ${theme.border} ${theme.modalHeaderBg}`}>
@@ -527,7 +533,12 @@ export function AddRecipeModal({
                 </label>
                 {imageUrl ? (
                   <div className="relative group">
-                    <img src={imageUrl} alt={title || 'Recipe'} referrerPolicy="no-referrer" className="w-full h-48 object-cover rounded-xl" />
+                    <img
+                      src={imageUrl}
+                      alt={title || 'Recipe'}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-48 object-contain rounded-xl bg-black/5"
+                    />
                     <button onClick={() => setImageUrl(undefined)} className="absolute top-2 right-2 p-2 bg-white/90 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-100">
                       <Trash2 className="w-4 h-4 text-rose-500" />
                     </button>
@@ -708,7 +719,7 @@ export function AddRecipeModal({
                   className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-base disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
                   placeholder={t('importUrlPlaceholder')}
                 />
-                <button onClick={() => handleImportUrl(false)} disabled={!importUrl.trim() || isParsing || !online} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
+                <button onClick={() => handleImportUrl(false)} disabled={!importUrl.trim() || isParsing || !online || !canImport} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
                   <Download className="w-5 h-5" />
                   {t('importAction')}
                 </button>
@@ -732,6 +743,14 @@ export function AddRecipeModal({
                       </button>
                     </div>
                   </div>
+                )}
+                {!canImport && (
+                  <p className={`mt-2 text-sm ${theme.textSecondary}`}>
+                    {t('planLimitImports')}{' '}
+                    <button type="button" onClick={() => onNeedPlan?.()} className={`font-medium ${theme.textAccent}`}>
+                      {t('planOpen')}
+                    </button>
+                  </p>
                 )}
                 {!online && (
                   <p className={`mt-2 text-sm ${theme.textSecondary}`}>{t('offlineHint')}</p>
@@ -862,7 +881,7 @@ export function AddRecipeModal({
             <button onClick={onClose} className={`flex-1 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl font-medium transition-colors`}>
               {t('cancel')}
             </button>
-            <button onClick={handleSave} disabled={!title.trim() || !category} className={`flex-1 py-2.5 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed`}>
+            <button onClick={handleSave} disabled={!title.trim() || !category || (!isEditMode && !canAddRecipe)} className={`flex-1 py-2.5 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed`}>
               {isEditMode ? t('save') : t('add')}
             </button>
           </div>

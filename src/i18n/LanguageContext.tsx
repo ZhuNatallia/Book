@@ -3,9 +3,37 @@ import { translations, Language, TranslationKey } from './translations';
 
 const STORAGE_KEY = 'app-language';
 
+const LANG_ALIASES: Record<string, Language> = {
+  ua: 'uk',
+  ukr: 'uk',
+  kz: 'kk',
+  kaz: 'kk',
+};
+
+function matchLanguage(tag: string): Language | null {
+  const base = tag.toLowerCase().replace('_', '-').split('-')[0];
+  if (base in translations) return base as Language;
+  return LANG_ALIASES[base] ?? null;
+}
+
+function detectDeviceLanguage(): Language {
+  if (typeof navigator === 'undefined') return 'en';
+  const tags = [...(navigator.languages ?? []), navigator.language].filter(Boolean);
+  for (const tag of tags) {
+    const hit = matchLanguage(tag);
+    if (hit) return hit;
+  }
+  return 'en';
+}
+
 function initialLanguage(): Language {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  return saved && saved in translations ? (saved as Language) : 'ru';
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved && saved in translations) return saved as Language;
+  } catch {
+    /* private mode */
+  }
+  return detectDeviceLanguage();
 }
 
 interface LanguageContextType {
@@ -23,6 +51,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, language);
     document.documentElement.lang = language;
+    document.title = translations[language].appName;
   }, [language]);
 
   const t = (key: TranslationKey | string): string => {

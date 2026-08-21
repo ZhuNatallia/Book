@@ -132,7 +132,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
 
         {/* Mode tabs */}
         {mode !== 'forgot' && (
-          <div className={`flex w-full mb-6 ${theme.card} p-1`}>
+          <div className="flex w-full mb-6 neu-segment p-1">
             <button
               onClick={() => { setMode('login'); setError(null); }}
               className={`flex-1 py-2.5 text-base font-medium transition-all ${

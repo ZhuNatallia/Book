@@ -64,12 +64,106 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+const JUNK_IMAGE_RE =
+  /emoji\.php|rsrc\.php|sprite|favicon|\.ico(\?|$)|pixel|1x1|tracking|gravatar|doubleclick|adservice|logo[-_./]|avatar|wp-includes\/images/i;
+const TINY_IMAGE_RE = /-\d{2,3}x\d{2,3}\.(jpe?g|png|webp|gif)(\?|$)/i;
+
+function isUsableImageUrl(src: unknown): src is string {
+  if (typeof src !== 'string') return false;
+  const s = src.trim();
+  if (!s || s === 'NaN' || /nan/i.test(s) && !/https?:/i.test(s)) return false;
+  if (!/^(https?:)?\/\//i.test(s) && !s.startsWith('/')) return false;
+  if (/NaNxNaN|[?&](?:w|h|width|height)=NaN/i.test(s)) return false;
+  if (JUNK_IMAGE_RE.test(s)) return false;
+  if (/^data:/i.test(s) && !/^data:image\/(jpeg|jpg|png|webp|gif)/i.test(s)) return false;
+  return true;
+}
+
+function absolutizeUrl(src: string, pageUrl?: string): string {
+  try {
+    if (src.startsWith('//')) return `https:${src}`;
+    if (pageUrl) return new URL(src, pageUrl).href;
+  } catch { /* keep as-is */ }
+  return src;
+}
+
+function htmlAttr(tag: string, name: string): string | undefined {
+  return tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`, 'i'))?.[1];
+}
+
+function pickLargestSrcset(srcset: string, pageUrl?: string): string | undefined {
+  const parts = srcset.split(',').map((part) => {
+    const [u, w] = part.trim().split(/\s+/);
+    return { u, width: w?.endsWith('w') ? parseInt(w, 10) || 0 : 0 };
+  }).filter((p) => isUsableImageUrl(p.u));
+  parts.sort((a, b) => b.width - a.width);
+  const best = parts.find((p) => !TINY_IMAGE_RE.test(p.u)) ?? parts[0];
+  return best?.u ? absolutizeUrl(best.u, pageUrl) : undefined;
+}
+
+function srcFromImgTag(tag: string, pageUrl?: string): string | undefined {
+  const srcset = htmlAttr(tag, 'srcset') ?? htmlAttr(tag, 'data-srcset');
+  if (srcset) {
+    const fromSet = pickLargestSrcset(srcset, pageUrl);
+    if (fromSet) return fromSet;
+  }
+  const src =
+    htmlAttr(tag, 'data-src') ??
+    htmlAttr(tag, 'data-lazy-src') ??
+    htmlAttr(tag, 'data-full-url') ??
+    htmlAttr(tag, 'data-orig-file') ??
+    htmlAttr(tag, 'src');
+  return isUsableImageUrl(src) ? absolutizeUrl(src, pageUrl) : undefined;
+}
+
+// WordPress / microdata / lazy-load photos when the page has no og:image or JSON-LD.
+function extractPageImage(html: string, pageUrl?: string): string | undefined {
+  const metaItem =
+    html.match(/<meta[^>]+itemprop=["']image["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+itemprop=["']image["']/i)?.[1];
+  if (isUsableImageUrl(metaItem)) return absolutizeUrl(metaItem, pageUrl);
+
+  const link =
+    html.match(/<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i)?.[1] ??
+    html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']image_src["']/i)?.[1];
+  if (isUsableImageUrl(link)) return absolutizeUrl(link, pageUrl);
+
+  const featured =
+    html.match(/<img\b[^>]*class=["'][^"']*wp-post-image[^"']*["'][^>]*>/i)?.[0] ??
+    html.match(/<img\b[^>]*itemprop=["']image["'][^>]*>/i)?.[0] ??
+    html.match(/<img\b[^>]*class=["'][^"']*wprm-recipe-image[^"']*["'][^>]*>/i)?.[0];
+  if (featured) {
+    const src = srcFromImgTag(featured, pageUrl);
+    if (src) return src;
+  }
+
+  const scope =
+    html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] ??
+    html.match(/<(?:div|figure)[^>]*class=["'][^"']*(?:post-thumbnail|entry-content|recipe-image)[^"']*["'][^>]*>[\s\S]*?<\/(?:div|figure)>/i)?.[0] ??
+    html;
+  for (const m of scope.matchAll(/<img\b[^>]*>/gi)) {
+    const src = srcFromImgTag(m[0], pageUrl);
+    if (!src || TINY_IMAGE_RE.test(src)) continue;
+    if (/wp-content\/uploads|\.(jpe?g|png|webp)(\?|$)/i.test(src)) return src;
+  }
+  return undefined;
+}
+
 // Extract URL from a schema.org image value (string, ImageObject, or similar)
-function extractImageUrl(img: unknown): string | undefined {
-  if (typeof img === 'string') return img;
+function extractImageUrl(img: unknown, pageUrl?: string): string | undefined {
+  if (typeof img === 'string') {
+    return isUsableImageUrl(img) ? absolutizeUrl(img, pageUrl) : undefined;
+  }
+  if (Array.isArray(img)) {
+    for (const item of img) {
+      const found = extractImageUrl(item, pageUrl);
+      if (found) return found;
+    }
+    return undefined;
+  }
   if (typeof img === 'object' && img !== null) {
     const o = img as Record<string, unknown>;
-    return (o.url ?? o.contentUrl ?? o.thumbnailUrl) as string | undefined;
+    return extractImageUrl(o.url ?? o.contentUrl ?? o.thumbnailUrl, pageUrl);
   }
   return undefined;
 }
@@ -595,13 +689,16 @@ const READER_DATE_LINE_RE = new RegExp(
 const READER_IMAGE_RE = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g;
 
 function pickPostImage(postSection: string): string | undefined {
+  let fallback: string | undefined;
   for (const m of postSection.matchAll(READER_IMAGE_RE)) {
     const src = m[1];
-    if (/emoji\.php|rsrc\.php|static\.|\.ico(\?|$)|\.svg(\?|$)/i.test(src)) continue;
-    if (!/scontent|fbcdn|cdninstagram|tiktokcdn/i.test(src)) continue;
-    return src;
+    if (!isUsableImageUrl(src) || TINY_IMAGE_RE.test(src)) continue;
+    if (/scontent|fbcdn|cdninstagram|tiktokcdn/i.test(src)) return src;
+    if (/wp-content\/uploads|\.(jpe?g|png|webp)(\?|$)/i.test(src)) {
+      fallback ??= src;
+    }
   }
-  return undefined;
+  return fallback;
 }
 
 function extractPostText(raw: string): { text: string; image?: string } {
@@ -718,12 +815,15 @@ async function fetchProxyHtml(url: string): Promise<string | undefined> {
   return undefined;
 }
 
-function htmlToCaption(html: string): { text: string; image?: string } {
+function htmlToCaption(html: string, pageUrl?: string): { text: string; image?: string } {
   const text = extractArticleText(html);
   const image =
     extractMeta(html, 'og:image', 'property') ??
+    extractMeta(html, 'og:image:url', 'property') ??
+    extractMeta(html, 'og:image:secure_url', 'property') ??
     extractMeta(html, 'twitter:image', 'name') ??
-    extractMeta(html, 'twitter:image:src', 'name');
+    extractMeta(html, 'twitter:image:src', 'name') ??
+    extractPageImage(html, pageUrl);
   return { text, image };
 }
 
@@ -742,7 +842,7 @@ async function fetchFullText(
     return jina?.text ? jina : undefined;
   }
 
-  const fromHtml = htmlToCaption(html);
+  const fromHtml = htmlToCaption(html, url);
   if (fromHtml.text.length > (jina?.text.length ?? 0)) {
     return { text: fromHtml.text, image: fromHtml.image ?? jina?.image, html };
   }
@@ -958,12 +1058,51 @@ function sanitizeTitle(raw: string): string {
 }
 
 // Extract a numeric nutrient value from the nutrition object by field name
+function parseNutritionNumber(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const s = String(raw).replace(/,/g, '.').replace(/[–—]/g, '-');
+  if (/^nan$/i.test(s.trim())) return undefined;
+  const range = s.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+  if (range) {
+    const mid = (Number(range[1]) + Number(range[2])) / 2;
+    return Number.isFinite(mid) ? Math.round(mid).toString() : undefined;
+  }
+  const m = s.match(/(\d+(?:\.\d+)?)/);
+  if (!m) return undefined;
+  const n = Math.round(Number(m[1]));
+  return Number.isFinite(n) ? n.toString() : undefined;
+}
+
 function extractNutrient(nutrition: Record<string, unknown> | undefined, key: string): string | undefined {
   if (!nutrition) return undefined;
-  const raw = nutrition[key];
-  if (raw === undefined || raw === null) return undefined;
-  const m = String(raw).replace(',', '.').match(/[\d.]+/);
-  return m ? Math.round(Number(m[0])).toString() : undefined;
+  return parseNutritionNumber(nutrition[key]);
+}
+
+function parseMacroFromHtml(html: string, word: string): string | undefined {
+  const text = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
+  const perServing = text.match(
+    new RegExp(`${word}[^\\n<]{0,100}?(\\d+[.,]?\\d*)\\s*г\\s*на порц`, 'i'),
+  );
+  if (perServing) return parseNutritionNumber(perServing[1]);
+  return parseNutritionNumber(text.match(new RegExp(`${word}[^<]{0,40}?([\\d,.]+)`, 'i'))?.[1]);
+}
+
+function parseKcalFromHtml(html: string): string | undefined {
+  const text = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/[–—]/g, '-');
+  const perServingRange = text.match(
+    /~?\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(?:ккал|kcal)\b[^\n<]{0,48}(?:порц|serving)/i,
+  );
+  if (perServingRange) return parseNutritionNumber(`${perServingRange[1]}-${perServingRange[2]}`);
+  const perServing = text.match(/~?\s*(\d+(?:\.\d+)?)\s*(?:ккал|kcal)\b[^\n<]{0,48}(?:порц|serving)/i);
+  if (perServing) return parseNutritionNumber(perServing[1]);
+  for (const m of text.matchAll(/(\d+(?:\.\d+)?)\s*(?:ккал|kcal)\b/gi)) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n >= 20 && n <= 2500) return String(Math.round(n));
+  }
+  return undefined;
 }
 
 // Every language the app can be switched to, spelled out for the prompt.
@@ -1624,12 +1763,14 @@ serve(async (req) => {
           ?? (pageTitle ? decodeEntities(pageTitle) : undefined);
         const pageOgDesc = extractMeta(html, 'og:description', 'property') ?? undefined;
         const pageImage = extractMeta(html, 'og:image', 'property')
+          ?? extractMeta(html, 'og:image:url', 'property')
           ?? extractMeta(html, 'twitter:image', 'name')
-          ?? extractMeta(html, 'twitter:image:src', 'name');
+          ?? extractMeta(html, 'twitter:image:src', 'name')
+          ?? extractPageImage(html, sourceUrl);
         if (!mlTitle && pageOgTitle && !looksLikeFacebookChrome(pageOgTitle)) mlTitle = pageOgTitle;
         if (!mlDesc && pageOgDesc && !isLoginWallText(pageOgDesc)) mlDesc = pageOgDesc;
-        if (!mlImage && pageImage) mlImage = pageImage;
-        const fromPage = htmlToCaption(html);
+        if (!mlImage && isUsableImageUrl(pageImage)) mlImage = pageImage;
+        const fromPage = htmlToCaption(html, sourceUrl);
         const pageCaption = fromPage.text.length > 80 ? fromPage.text : pickCaption(pageOgTitle, pageOgDesc);
         if (pageCaption.length > rawCaption.length && !isLoginWallText(pageCaption)) {
           rawCaption = pageCaption;
@@ -1932,7 +2073,11 @@ serve(async (req) => {
     // Shared OG/Twitter meta extraction
     const ogTitle   = html ? extractMeta(html, 'og:title', 'property') : undefined;
     const ogDesc    = html ? extractMeta(html, 'og:description', 'property') : undefined;
-    const ogImage   = html ? extractMeta(html, 'og:image', 'property') : undefined;
+    const ogImage   = html
+      ? (extractMeta(html, 'og:image', 'property')
+        ?? extractMeta(html, 'og:image:url', 'property')
+        ?? extractMeta(html, 'og:image:secure_url', 'property'))
+      : undefined;
     const twImage   = html
       ? (extractMeta(html, 'twitter:image', 'name') ?? extractMeta(html, 'twitter:image:src', 'name'))
       : undefined;
@@ -2013,61 +2158,41 @@ serve(async (req) => {
     const nutrition = recipe.nutrition as Record<string, unknown> | undefined;
 
     let calories: string | undefined = extractNutrient(nutrition, 'calories') ?? extractNutrient(nutrition, 'calorie');
-    if (!calories) {
-      const m = html.match(/[Кк]алории[иийь]?\s*([\d,.]+)\s*[кКkK][кКkK]?[аАaA][лЛlL]/);
-      if (m) calories = Math.round(Number(m[1].replace(',', '.'))).toString();
-    }
-    if (!calories) {
-      const m = html.match(/([\d]+[,.]?[\d]*)\s*[кКkK]{1,2}[аАaA][лЛlL]/);
-      if (m) calories = Math.round(Number(m[1].replace(',', '.'))).toString();
-    }
+    if (!calories) calories = parseKcalFromHtml(html);
 
     let protein: string | undefined = extractNutrient(nutrition, 'proteinContent');
-    if (!protein) {
-      const m = html.match(/белк[иа][^<]{0,20}?([\d,.]+)/i);
-      if (m) protein = Math.round(Number(m[1].replace(',', '.'))).toString();
-    }
+    if (!protein) protein = parseMacroFromHtml(html, 'белк[иа]');
 
     let fat: string | undefined = extractNutrient(nutrition, 'fatContent');
-    if (!fat) {
-      const m = html.match(/жир[ыа][^<]{0,20}?([\d,.]+)/i);
-      if (m) fat = Math.round(Number(m[1].replace(',', '.'))).toString();
-    }
+    if (!fat) fat = parseMacroFromHtml(html, 'жир[ыа]');
 
     let carbs: string | undefined = extractNutrient(nutrition, 'carbohydrateContent');
-    if (!carbs) {
-      const m = html.match(/углевод[ыа][^<]{0,20}?([\d,.]+)/i);
-      if (m) carbs = Math.round(Number(m[1].replace(',', '.'))).toString();
-    }
+    if (!carbs) carbs = parseMacroFromHtml(html, 'углевод[ыа]');
 
-    // ── Servings ──
-    const servings = recipe.recipeYield
-      ? Array.isArray(recipe.recipeYield)
-        ? String(recipe.recipeYield[0])
-        : String(recipe.recipeYield)
-      : undefined;
+    const servings = parseNutritionNumber(
+      Array.isArray(recipe.recipeYield) ? recipe.recipeYield[0] : recipe.recipeYield,
+    ) ?? parseNutritionNumber(html.match(/(\d+)\s*порц/i)?.[1]);
 
-    // ── Image: JSON-LD → og:image → twitter:image ──
+    // ── Image: JSON-LD → og:image → featured/microdata <img> ──
     let imageUrl: string | undefined;
     if (recipe.image) {
-      if (Array.isArray(recipe.image)) {
-        for (const img of [...(recipe.image as unknown[])].reverse()) {
-          imageUrl = extractImageUrl(img);
-          if (imageUrl) break;
-        }
-      } else {
-        imageUrl = extractImageUrl(recipe.image);
-      }
+      imageUrl = extractImageUrl(recipe.image, url);
     }
     if (!imageUrl) {
-      imageUrl =
+      const metaImage =
         extractMeta(html, 'og:image', 'property') ??
+        extractMeta(html, 'og:image:url', 'property') ??
+        extractMeta(html, 'og:image:secure_url', 'property') ??
         extractMeta(html, 'twitter:image', 'name') ??
         extractMeta(html, 'twitter:image:src', 'name') ??
         ogImage ??
-        twImage ??
-        readerImage;
+        twImage;
+      imageUrl = isUsableImageUrl(metaImage)
+        ? absolutizeUrl(metaImage, url)
+        : undefined;
     }
+    if (!imageUrl) imageUrl = extractPageImage(html, url);
+    if (!imageUrl && isUsableImageUrl(readerImage)) imageUrl = readerImage;
 
     // ── Translate into the app language when the source page is in another language ──
     let outTitle = title;
