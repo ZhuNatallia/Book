@@ -3,6 +3,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { useOnline } from '../lib/online';
+import { giftRedirectUrl, persistGiftFromUrl, readPendingGift } from '../lib/gift';
 import { ChefHat, Mail, Lock, Eye, EyeOff, ArrowLeft, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
@@ -24,10 +25,9 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const getRedirectUrl = () => {
-    const origin = window.location.origin;
-    return `${origin}/`;
-  };
+  const pendingGift = typeof window !== 'undefined' ? (persistGiftFromUrl(), readPendingGift()) : null;
+
+  const getRedirectUrl = () => giftRedirectUrl(window.location.origin);
 
   const handleOAuth = async (provider: 'google' | 'apple') => {
     setError(null);
@@ -75,7 +75,11 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
 
     try {
       if (mode === 'signup') {
-        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: getRedirectUrl() },
+        });
         if (signUpError) {
           if (signUpError.message.includes('already')) {
             setError(t('authErrorExists'));
@@ -96,7 +100,9 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
           }
         }
       } else if (mode === 'forgot') {
-        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email);
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: getRedirectUrl(),
+        });
         if (resetError) {
           setError(resetError.message);
         } else {
@@ -123,9 +129,12 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
         <h1 className={`text-2xl font-bold ${theme.textPrimary} mb-1`}>
           {mode === 'forgot' ? t('authForgotTitle') : t('authWelcome')}
         </h1>
-        <p className={`${theme.textSecondary} text-base mb-8 text-center`}>
+        <p className={`${theme.textSecondary} text-base ${pendingGift ? 'mb-2' : 'mb-8'} text-center`}>
           {mode === 'forgot' ? t('authForgotDesc') : t('authWelcomeDesc')}
         </p>
+        {pendingGift && (
+          <p className={`text-sm mb-8 text-center ${theme.textAccent}`}>{t('planGiftPending')}</p>
+        )}
         {!online && (
           <p className={`text-sm mb-4 text-center ${theme.textSecondary}`}>{t('offlineHint')}</p>
         )}
