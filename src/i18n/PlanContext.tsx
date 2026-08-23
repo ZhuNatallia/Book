@@ -8,6 +8,8 @@ import {
   isPlusActive,
 } from '../lib/plan';
 import { countImportsThisMonth, fetchSubscription, recordRecipeImport } from '../lib/planDb';
+import { clearPendingGift, persistGiftFromUrl, readPendingGift } from '../lib/gift';
+import { GiftResult, redeemGift } from '../lib/giftDb';
 import { FullRecipe } from '../types';
 
 export function ownRecipeCount(recipes: FullRecipe[]): number {
@@ -30,6 +32,9 @@ type PlanContextValue = {
   syncRecipeCount: (count: number) => void;
   refresh: () => Promise<void>;
   recordImport: (sourceUrl?: string) => Promise<void>;
+  giftNotice: GiftResult | null;
+  redeemPendingGift: () => Promise<void>;
+  redeemCode: (token: string) => Promise<GiftResult>;
 };
 
 const PlanContext = createContext<PlanContextValue | undefined>(undefined);
@@ -46,6 +51,7 @@ export function PlanProvider({
   const [importsUsed, setImportsUsed] = useState(0);
   const [loading, setLoading] = useState(Boolean(userId));
   const [periodPreview, setPeriodPreview] = useState<PlanPeriod>('year');
+  const [giftNotice, setGiftNotice] = useState<GiftResult | null>(null);
 
   const refresh = useCallback(async () => {
     if (!userId) {
@@ -69,6 +75,29 @@ export function PlanProvider({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const redeemCode = useCallback(
+    async (token: string) => {
+      const result = await redeemGift(token);
+      setGiftNotice(result);
+      if (result.ok) await refresh();
+      return result;
+    },
+    [refresh],
+  );
+
+  const redeemPendingGift = useCallback(async () => {
+    persistGiftFromUrl();
+    if (!userId || typeof navigator !== 'undefined' && !navigator.onLine) return;
+    const token = readPendingGift();
+    if (!token) return;
+    const result = await redeemGift(token);
+    setGiftNotice(result);
+    if (result.status !== 'auth' && result.status !== 'error') {
+      clearPendingGift();
+    }
+    if (result.ok) await refresh();
+  }, [userId, refresh]);
 
   const recordImport = useCallback(
     async (sourceUrl?: string) => {
@@ -102,6 +131,9 @@ export function PlanProvider({
         syncRecipeCount: setRecipeCount,
         refresh,
         recordImport,
+        giftNotice,
+        redeemPendingGift,
+        redeemCode,
       }}
     >
       {children}

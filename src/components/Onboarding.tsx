@@ -15,68 +15,11 @@ function markTourSeen() {
   localStorage.setItem(TOUR_KEY, 'true');
 }
 
-function BookCorner() {
-  return (
-    <svg viewBox="0 0 64 64" fill="none" aria-hidden>
-      <path
-        d="M8 48c0-18 6-28 18-36M16 56c12-2 24-8 32-20"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-      />
-      <path
-        d="M10 40c8-2 12-8 12-16M28 52c2-10 10-16 20-18"
-        stroke="currentColor"
-        strokeWidth="0.8"
-        strokeLinecap="round"
-        opacity="0.75"
-      />
-      <path
-        d="M22 22c-4 0-6-4-4-7 4-1 8 3 7 7M42 42c0-4 4-6 7-4-1 4-5 8-7 7"
-        stroke="currentColor"
-        strokeWidth="0.9"
-        strokeLinecap="round"
-      />
-      <circle cx="22" cy="22" r="1.3" fill="currentColor" />
-      <circle cx="42" cy="42" r="1.3" fill="currentColor" />
-    </svg>
-  );
-}
-
-function BookCrest() {
-  return (
-    <svg className="book-crest" viewBox="0 0 120 78" fill="none" aria-hidden>
-      <path
-        d="M14 50c8-16 18-24 28-18M14 58c12-8 20-8 30-2"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-      />
-      <path
-        d="M106 50c-8-16-18-24-28-18M106 58c-12-8-20-8-30-2"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-      />
-      <path d="M22 44c6-2 10 4 8 9M98 44c-6-2-10 4-8 9" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" />
-      <ellipse cx="60" cy="62" rx="22" ry="5" stroke="currentColor" strokeWidth="1.2" />
-      <path
-        d="M40 61c1-14 6-22 20-22s19 8 20 22"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path d="M44 48h32" stroke="currentColor" strokeWidth="0.8" opacity="0.8" />
-      <path
-        d="M60 38c-6-8-4-16 0-22 4 6 6 14 0 22Z"
-        stroke="currentColor"
-        strokeWidth="1.15"
-        strokeLinejoin="round"
-      />
-      <path d="M60 18c-7 1-11-3-12-8 8 1 12 4 12 8Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-      <path d="M52 22c2 4 5 7 8 8M68 22c-2 4-5 7-8 8" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" />
-    </svg>
-  );
+function coverTitleLines(title: string): string[] {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 3) return words;
+  const mid = Math.ceil(words.length / 2);
+  return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
 }
 
 const LANGS: { code: Language; label: string }[] = [
@@ -132,8 +75,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   useEffect(() => {
     if (phase !== 'cover') return;
-    const delay = prefersReducedMotion() ? 400 : 2800;
-    const timer = window.setTimeout(openCover, delay);
+    if (prefersReducedMotion()) return;
+    const timer = window.setTimeout(openCover, 2800);
     return () => window.clearTimeout(timer);
   }, [phase]);
 
@@ -175,17 +118,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         >
           <div className="book-page" />
           <div className="book-cover">
-            <div className="book-spine" />
-            <div className="book-stitch" />
             <div className="book-plate">
-              <span className="book-corner book-corner-tl"><BookCorner /></span>
-              <span className="book-corner book-corner-tr"><BookCorner /></span>
-              <span className="book-corner book-corner-bl"><BookCorner /></span>
-              <span className="book-corner book-corner-br"><BookCorner /></span>
-              <h1 className="book-title">{t('myRecipeBook')}</h1>
+              <h1 className="book-title">
+                {coverTitleLines(t('myRecipeBook')).map((line) => (
+                  <span key={line} className="book-title-line">
+                    {line}
+                  </span>
+                ))}
+              </h1>
               <p className="book-tagline">{t('bookTagline')}</p>
-              <span className="book-rule" />
-              <BookCrest />
             </div>
           </div>
         </button>

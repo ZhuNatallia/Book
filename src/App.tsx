@@ -30,7 +30,7 @@ function AppContent() {
 	const { t, language } = useLanguage();
 	const { theme } = useTheme();
 	const { session, loading: authLoading } = useAuth();
-	const { canAddRecipe, syncRecipeCount } = usePlan();
+	const { canAddRecipe, syncRecipeCount, giftNotice, redeemPendingGift } = usePlan();
 	const online = useOnline();
 	const [welcomeDone, setWelcomeDone] = useState(false);
 	const hadSession = useRef(false);
@@ -41,6 +41,11 @@ function AppContent() {
 		}
 		hadSession.current = Boolean(session);
 	}, [session]);
+
+	useEffect(() => {
+		if (!session || !online) return;
+		void redeemPendingGift();
+	}, [session, online, redeemPendingGift]);
 
 	const handleSignOut = async () => {
 		await supabase.auth.signOut();
@@ -86,6 +91,13 @@ function AppContent() {
 	const [headerCompact, setHeaderCompact] = useState(false);
 	const [openSettingsTo, setOpenSettingsTo] = useState<'plan' | null>(null);
 	const filterBarRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (!giftNotice) return;
+		if (giftNotice.status === 'ok' || giftNotice.status === 'already' || giftNotice.status === 'already_plus') {
+			setOpenSettingsTo('plan');
+		}
+	}, [giftNotice]);
 
 	useEffect(() => {
 		if (activeView !== 'recipes' || showFridge) {
@@ -258,6 +270,7 @@ function AppContent() {
 				syncing={syncing}
 				openSettingsTo={openSettingsTo}
 				onOpenSettingsConsumed={() => setOpenSettingsTo(null)}
+				recipes={recipes}
 			/>
 
 			<main className='max-w-7xl mx-auto pb-24 pt-4'>

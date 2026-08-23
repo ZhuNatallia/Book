@@ -1,6 +1,8 @@
+import { FormEvent, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { usePlan } from '../i18n/PlanContext';
+import { GiftStatus } from '../lib/giftDb';
 import { Check, Sparkles } from 'lucide-react';
 
 function UsageBar({
@@ -34,6 +36,31 @@ function UsageBar({
   );
 }
 
+function giftNoticeText(status: GiftStatus, t: (key: string) => string): string | null {
+  switch (status) {
+    case 'ok':
+      return t('planGiftOk');
+    case 'already':
+      return t('planGiftAlready');
+    case 'already_plus':
+      return t('planGiftAlreadyPlus');
+    case 'invalid':
+      return t('planGiftInvalid');
+    case 'expired':
+      return t('planGiftExpired');
+    case 'exhausted':
+      return t('planGiftExhausted');
+    case 'email':
+      return t('planGiftEmail');
+    case 'auth':
+      return t('planGiftAuth');
+    case 'error':
+      return t('planGiftError');
+    default:
+      return null;
+  }
+}
+
 export function PlanSettings() {
   const { t, language } = useLanguage();
   const { theme } = useTheme();
@@ -47,7 +74,11 @@ export function PlanSettings() {
     importLimit,
     periodPreview,
     setPeriodPreview,
+    giftNotice,
+    redeemCode,
   } = usePlan();
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const until = subscription?.valid_until
     ? new Date(subscription.valid_until).toLocaleDateString(language, {
@@ -57,8 +88,20 @@ export function PlanSettings() {
       })
     : null;
 
+  const giftUntil = isPlus && subscription?.provider === 'gift' && until;
+  const notice = giftNotice ? giftNoticeText(giftNotice.status, t) : null;
+
   const freeFeatures = [t('planRecipesFree'), t('planImportsFree'), t('planNoAds')];
   const plusFeatures = [t('planRecipesPlus'), t('planImportsPlus'), t('planNoAds')];
+
+  const handleRedeem = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!code.trim() || busy) return;
+    setBusy(true);
+    const result = await redeemCode(code);
+    setBusy(false);
+    if (result.ok) setCode('');
+  };
 
   return (
     <div className="p-3 space-y-4">
@@ -68,10 +111,19 @@ export function PlanSettings() {
         </p>
         <p className={`text-lg font-semibold ${theme.textPrimary}`}>
           {isPlus ? t('planPlus') : t('planFree')}
-          {isPlus && until ? ` · ${t('planActiveUntil')} ${until}` : ''}
+          {giftUntil
+            ? ` · ${t('planGiftUntil')} ${until}`
+            : isPlus && until
+              ? ` · ${t('planActiveUntil')} ${until}`
+              : ''}
         </p>
         {expiredPlus && (
           <p className={`text-sm mt-1 ${theme.textSecondary}`}>{t('planExpired')}</p>
+        )}
+        {notice && (
+          <p className={`text-sm mt-1 ${giftNotice?.ok ? theme.textAccent : theme.textSecondary}`}>
+            {notice}
+          </p>
         )}
       </div>
 
@@ -89,6 +141,28 @@ export function PlanSettings() {
           unlimitedLabel={t('planUnlimited')}
         />
       </div>
+
+      <form onSubmit={handleRedeem} className="space-y-2">
+        <p className={`text-sm ${theme.textSecondary}`}>{t('planGiftCode')}</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder={t('planGiftCodePlaceholder')}
+            autoComplete="off"
+            spellCheck={false}
+            className={`min-w-0 flex-1 px-3 py-2 text-sm ${theme.input}`}
+          />
+          <button
+            type="submit"
+            disabled={busy || !code.trim()}
+            className={`shrink-0 px-3 py-2 text-sm font-medium ${theme.btnPrimary} disabled:opacity-50`}
+          >
+            {t('planGiftRedeem')}
+          </button>
+        </div>
+      </form>
 
       <div className={`rounded-2xl border ${theme.border} p-3 ${!isPlus ? theme.tabActiveBg : ''}`}>
         <div className="flex items-center justify-between mb-2">

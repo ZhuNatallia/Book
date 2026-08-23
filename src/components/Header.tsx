@@ -2,11 +2,13 @@ import { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
-import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User, CalendarDays, MessageCircle, Sparkles } from 'lucide-react';
+import { ChefHat, Plus, Settings, ChevronRight, ArrowLeft, Check, LogOut, Scale, Users, User, CalendarDays, MessageCircle, Sparkles, Shield } from 'lucide-react';
 import { ProfileSettings } from './ProfileSettings';
 import { FeedbackForm } from './FeedbackForm';
 import { PlanSettings } from './PlanSettings';
+import { AccountSettings } from './AccountSettings';
 import { usePlan } from '../i18n/PlanContext';
+import { FullRecipe } from '../types';
 
 export type BottomNavView = 'recipes' | 'shopping' | 'menu' | 'converter' | 'friends';
 
@@ -21,9 +23,10 @@ interface HeaderProps {
   syncing?: boolean;
   openSettingsTo?: 'plan' | null;
   onOpenSettingsConsumed?: () => void;
+  recipes: FullRecipe[];
 }
 
-type SettingsView = 'main' | 'language' | 'theme' | 'profile' | 'feedback' | 'plan';
+type SettingsView = 'main' | 'language' | 'theme' | 'profile' | 'feedback' | 'plan' | 'account';
 
 export function Header({
   onAddRecipe,
@@ -36,6 +39,7 @@ export function Header({
   syncing = false,
   openSettingsTo = null,
   onOpenSettingsConsumed,
+  recipes,
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId } = useTheme();
@@ -155,6 +159,16 @@ export function Header({
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
+                          onClick={() => setSettingsView('account')}
+                          className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Shield className={`w-5 h-5 ${theme.textAccent}`} />
+                            <span className="text-base font-medium">{t('accountTitle')}</span>
+                          </div>
+                          <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
+                        </button>
+                        <button
                           onClick={() => setSettingsView('plan')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
@@ -221,6 +235,26 @@ export function Header({
                         </p>
                       </div>
                       <ProfileSettings userId={userId} email={email} />
+                    </>
+                  )}
+
+                  {settingsView === 'account' && (
+                    <>
+                      <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
+                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                          <ArrowLeft className="w-4 h-4" />
+                        </button>
+                        <p className={`text-base font-semibold ${theme.textPrimary}`}>
+                          {t('accountTitle')}
+                        </p>
+                      </div>
+                      <AccountSettings
+                        userId={userId}
+                        email={email}
+                        online={online}
+                        recipes={recipes}
+                        onDeleted={onSignOut}
+                      />
                     </>
                   )}
 
