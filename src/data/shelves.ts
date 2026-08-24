@@ -13,6 +13,10 @@ export function isPresetShelf(tag: string): tag is PresetShelf {
   return (PRESET_SHELVES as readonly string[]).includes(tag);
 }
 
+export function hasMomsShelf(tags?: string[] | null): boolean {
+  return (tags ?? []).includes('moms');
+}
+
 export function shelfLabel(tag: string, t: (key: string) => string): string {
   if (isPresetShelf(tag)) return t(PRESET_KEYS[tag]);
   return tag;

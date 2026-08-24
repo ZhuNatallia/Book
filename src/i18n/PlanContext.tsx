@@ -10,6 +10,7 @@ import {
 import { countImportsThisMonth, fetchSubscription, recordRecipeImport } from '../lib/planDb';
 import { clearPendingGift, persistGiftFromUrl, readPendingGift } from '../lib/gift';
 import { GiftResult, redeemGift } from '../lib/giftDb';
+import { TrialResult, startTrial as startTrialRpc } from '../lib/trialDb';
 import { FullRecipe } from '../types';
 
 export function ownRecipeCount(recipes: FullRecipe[]): number {
@@ -35,6 +36,9 @@ type PlanContextValue = {
   giftNotice: GiftResult | null;
   redeemPendingGift: () => Promise<void>;
   redeemCode: (token: string) => Promise<GiftResult>;
+  canStartTrial: boolean;
+  trialNotice: TrialResult | null;
+  startTrial: () => Promise<TrialResult>;
 };
 
 const PlanContext = createContext<PlanContextValue | undefined>(undefined);
@@ -52,6 +56,7 @@ export function PlanProvider({
   const [loading, setLoading] = useState(Boolean(userId));
   const [periodPreview, setPeriodPreview] = useState<PlanPeriod>('year');
   const [giftNotice, setGiftNotice] = useState<GiftResult | null>(null);
+  const [trialNotice, setTrialNotice] = useState<TrialResult | null>(null);
 
   const refresh = useCallback(async () => {
     if (!userId) {
@@ -99,6 +104,13 @@ export function PlanProvider({
     if (result.ok) await refresh();
   }, [userId, refresh]);
 
+  const startTrial = useCallback(async () => {
+    const result = await startTrialRpc();
+    setTrialNotice(result);
+    if (result.ok) await refresh();
+    return result;
+  }, [refresh]);
+
   const recordImport = useCallback(
     async (sourceUrl?: string) => {
       if (!userId) return;
@@ -110,6 +122,7 @@ export function PlanProvider({
 
   const isPlus = isPlusActive(subscription);
   const expiredPlus = subscription?.plan === 'plus' && !isPlus;
+  const canStartTrial = !isPlus && !subscription?.trial_started_at;
   const recipeLimit = isPlus ? null : FREE_RECIPE_LIMIT;
   const importLimit = isPlus ? null : FREE_IMPORT_LIMIT;
 
@@ -134,6 +147,9 @@ export function PlanProvider({
         giftNotice,
         redeemPendingGift,
         redeemCode,
+        canStartTrial,
+        trialNotice,
+        startTrial,
       }}
     >
       {children}

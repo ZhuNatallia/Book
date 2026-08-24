@@ -20,7 +20,7 @@ import {
 	CalendarPlus,
 	CalendarCheck,
 } from 'lucide-react';
-import { shelfLabel } from '../data/shelves';
+import { shelfLabel, hasMomsShelf } from '../data/shelves';
 
 interface RecipeCardProps {
 	recipe: FullRecipe;
@@ -49,8 +49,9 @@ export function RecipeCard({
 }: RecipeCardProps) {
 	const r = recipe.recipe as any;
 	const { language, t, tCategory } = useLanguage();
-	const { theme } = useTheme();
+	const { theme, momsPaper } = useTheme();
 	const isPersonal = isOwner && !isSampleRecipeId(recipe.recipe.id);
+	const notebook = momsPaper && hasMomsShelf(recipe.recipe.tags);
 	const [imgFailed, setImgFailed] = useState(false);
 	useEffect(() => {
 		setImgFailed(false);
@@ -74,7 +75,9 @@ export function RecipeCard({
 
 	return (
 		<div
-			className={`group relative flex flex-col h-full ${theme.card} overflow-hidden`}
+			className={`group relative flex flex-col h-full ${theme.card} overflow-hidden ${
+				notebook ? 'notebook-paper' : ''
+			}`}
 		>
 			<div className='relative aspect-[4/3] shrink-0 overflow-hidden'>
 				{showPhoto ? (
@@ -87,11 +90,17 @@ export function RecipeCard({
 					/>
 				) : (
 					<div
-						className={`w-full h-full ${theme.bgPrimary} flex flex-col items-center justify-center relative`}
+						className={`w-full h-full flex flex-col items-center justify-center relative ${
+							notebook ? '' : theme.bgPrimary
+						}`}
 					>
+						{!notebook && (
+							<>
 						<div className='absolute top-4 right-4 w-12 h-12 bg-orange-200/50 rounded-full' />
 						<div className='absolute bottom-6 left-6 w-8 h-8 bg-rose-200/50 rounded-full' />
 						<div className='absolute top-1/3 left-1/4 w-6 h-6 bg-amber-200/40 rounded-full' />
+							</>
+						)}
 
 						<div className='relative'>
 							{recipe.recipe.category === 'pastry' ||
@@ -261,7 +270,7 @@ export function RecipeCard({
 							})}
 						</span>
 					)}
-					<div className='px-2.5 py-1 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm rounded-full text-xs font-semibold text-zinc-700 dark:text-zinc-300 shadow-sm border border-zinc-200/50 dark:border-zinc-700/50'>
+					<div className='px-2.5 py-1 bg-white/95 dark:bg-white/15 backdrop-blur-sm rounded-full text-xs font-semibold text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20'>
 						{tCategory(recipe.recipe.category)}
 					</div>
 				</div>

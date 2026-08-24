@@ -22,7 +22,9 @@ import { useOnline } from './lib/online';
 import { isPresetShelf } from './data/shelves';
 import { recipeMatchesQuery } from './lib/recipeSearch';
 import { remainingShoppingItems } from './lib/ingredientMerge';
+import { shouldShowTrialOffer } from './lib/trialOffer';
 import { ChefHat } from 'lucide-react';
+import { TrialOffer } from './components/TrialOffer';
 
 type AppView = BottomNavView;
 
@@ -30,7 +32,7 @@ function AppContent() {
 	const { t, language } = useLanguage();
 	const { theme } = useTheme();
 	const { session, loading: authLoading } = useAuth();
-	const { canAddRecipe, syncRecipeCount, giftNotice, redeemPendingGift } = usePlan();
+	const { canAddRecipe, syncRecipeCount, giftNotice, redeemPendingGift, isPlus, canStartTrial, loading: planLoading, trialNotice } = usePlan();
 	const online = useOnline();
 	const [welcomeDone, setWelcomeDone] = useState(false);
 	const hadSession = useRef(false);
@@ -90,6 +92,7 @@ function AppContent() {
 	const [editingRecipe, setEditingRecipe] = useState<FullRecipe | null>(null);
 	const [headerCompact, setHeaderCompact] = useState(false);
 	const [openSettingsTo, setOpenSettingsTo] = useState<'plan' | null>(null);
+	const [offerReady, setOfferReady] = useState(false);
 	const filterBarRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -98,6 +101,15 @@ function AppContent() {
 			setOpenSettingsTo('plan');
 		}
 	}, [giftNotice]);
+
+	useEffect(() => {
+		if (trialNotice?.status === 'ok') setOpenSettingsTo('plan');
+	}, [trialNotice]);
+
+	useEffect(() => {
+		const timer = window.setTimeout(() => setOfferReady(true), 2500);
+		return () => window.clearTimeout(timer);
+	}, [session?.user.id]);
 
 	useEffect(() => {
 		if (activeView !== 'recipes' || showFridge) {
@@ -445,6 +457,18 @@ function AppContent() {
 				}}
 				onNeedPlan={openPlanSettings}
 			/>
+			{offerReady &&
+				!planLoading &&
+				online &&
+				!showAddModal &&
+				!selectedRecipe &&
+				!showFridge &&
+				shouldShowTrialOffer({
+					userId: session.user.id,
+					createdAt: session.user.created_at,
+					isPlus,
+					canStartTrial,
+				}) && <TrialOffer userId={session.user.id} />}
 		</div>
 	);
 }

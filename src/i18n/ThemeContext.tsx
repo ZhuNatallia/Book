@@ -114,46 +114,46 @@ export const themes: Record<ThemeId, Theme> = {
   dark: {
     id: 'dark',
     name: { ru: 'Темная', en: 'Dark', de: 'Dunkel', uk: 'Темна', pl: 'Ciemny', it: 'Scuro', es: 'Oscuro', fr: 'Sombre', kk: 'Қараңғы' },
-    bgPrimary: 'bg-[#16181d]',
-    bgSecondary: 'bg-[#1e2128]',
-    bgCard: 'bg-[#1e2128]',
+    bgPrimary: 'bg-[#2c333d]',
+    bgSecondary: 'bg-[#363e48]',
+    bgCard: 'bg-[#2c333d]',
     accentPrimary: 'bg-[#00e5ff]',
     accentSecondary: 'bg-[#c026d3]',
     accentGradient: 'bg-gradient-to-r from-[#00e5ff] to-[#c026d3]',
     accentHover: 'hover:brightness-110',
-    textPrimary: 'text-zinc-100',
-    textSecondary: 'text-zinc-400',
-    textAccent: 'text-cyan-300',
-    border: 'border-transparent',
-    borderAccent: 'border-cyan-400/40',
-    headerBg: 'bg-[#16181d]/90',
-    headerBorder: 'border-transparent',
+    textPrimary: 'text-white',
+    textSecondary: 'text-white/55',
+    textAccent: 'text-cyan-200',
+    border: 'border-white/15',
+    borderAccent: 'border-white/30',
+    headerBg: 'bg-[#2c333d]',
+    headerBorder: 'border-white/10',
     headerLogoGradient: 'from-[#00e5ff] to-[#c026d3]',
-    headerTitleGradient: 'from-cyan-300 to-fuchsia-400',
+    headerTitleGradient: 'from-cyan-200 to-fuchsia-300',
     headerLangActive: 'from-[#00e5ff] to-[#c026d3]',
-    headerLangInactive: 'text-zinc-400',
+    headerLangInactive: 'text-white/50',
     headerLangBg: '',
     headerAddBtn: 'from-[#00e5ff] to-[#c026d3]',
     headerAddBtnHover: 'hover:brightness-110',
     headerText: 'text-white',
     bottomNavBg: '',
-    bottomNavBorder: 'border-transparent',
-    bottomNavActive: 'text-cyan-300',
-    bottomNavActiveBg: 'bg-white/5',
-    bottomNavInactive: 'text-zinc-500',
+    bottomNavBorder: 'border-white/10',
+    bottomNavActive: 'text-cyan-200',
+    bottomNavActiveBg: 'bg-white/15',
+    bottomNavInactive: 'text-white/45',
     catFilterActive: 'from-[#00e5ff] to-[#c026d3]',
     catFilterInactive: 'neu-chip',
-    tabActive: 'text-cyan-300',
-    tabActiveBorder: 'border-cyan-400',
-    tabActiveBg: 'bg-cyan-400/10',
-    inputBg: 'bg-white/5',
-    inputText: 'text-zinc-100',
-    inputBorder: 'border-cyan-400/20',
-    inputPlaceholder: 'placeholder-zinc-500',
-    modalBg: 'bg-[#1e2128]',
-    modalBorder: 'border-transparent',
-    modalHeaderBg: 'bg-[#16181d]',
-    label: 'text-zinc-300',
+    tabActive: 'text-cyan-200',
+    tabActiveBorder: 'border-white/35',
+    tabActiveBg: 'bg-white/12',
+    inputBg: 'bg-white/10',
+    inputText: 'text-white',
+    inputBorder: 'border-white/20',
+    inputPlaceholder: 'placeholder-white/40',
+    modalBg: 'bg-[#2c333d]',
+    modalBorder: 'border-white/15',
+    modalHeaderBg: 'bg-[#363e48]',
+    label: 'text-white/80',
     ...chrome,
   },
   turquoise: {
@@ -297,18 +297,23 @@ interface ThemeContextType {
   theme: Theme;
   themeId: ThemeId;
   setThemeId: (id: ThemeId) => void;
+  momsPaper: boolean;
+  setMomsPaper: (on: boolean) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeId, setThemeId] = useState<ThemeId>('light');
+  const [momsPaper, setMomsPaperState] = useState(true);
 
   useEffect(() => {
     const saved = localStorage.getItem('smartrecipe-theme') as ThemeId | null;
     if (saved && themes[saved]) {
       setThemeId(saved);
     }
+    const paper = localStorage.getItem('smartrecipe-moms-paper');
+    if (paper === 'off') setMomsPaperState(false);
   }, []);
 
   useEffect(() => {
@@ -320,10 +325,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('smartrecipe-theme', id);
   };
 
+  const handleSetMomsPaper = (on: boolean) => {
+    setMomsPaperState(on);
+    localStorage.setItem('smartrecipe-moms-paper', on ? 'on' : 'off');
+  };
+
   const theme = themes[themeId];
 
   return (
-    <ThemeContext.Provider value={{ theme, themeId, setThemeId: handleSetThemeId }}>
+    <ThemeContext.Provider
+      value={{ theme, themeId, setThemeId: handleSetThemeId, momsPaper, setMomsPaper: handleSetMomsPaper }}
+    >
       {children}
     </ThemeContext.Provider>
   );

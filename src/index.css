@@ -40,20 +40,24 @@ select option {
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --surf: #16181d;
-  --surf-2: #1e2128;
-  --card: rgba(255, 255, 255, 0.05);
-  --text: #f3f4f7;
-  --muted: #9aa3b2;
+  --surf: #2c333d;
+  --surf-2: #363e48;
+  --card: #323a44;
+  --text: #f4f6f8;
+  --muted: #b7c0cb;
   --accent: #00e5ff;
   --accent-2: #c026d3;
-  --glow: rgba(0, 229, 255, 0.4);
-  --glow-strong: rgba(192, 38, 211, 0.45);
-  --shadow-dark: #0a0b0e;
-  --shadow-light: #2a2e38;
-  --stroke: rgba(0, 229, 255, 0.45);
+  --glow: rgba(255, 255, 255, 0.14);
+  --glow-strong: rgba(255, 255, 255, 0.22);
+  --shadow-dark: rgba(12, 16, 22, 0.4);
+  --shadow-light: rgba(255, 255, 255, 0.12);
+  --stroke: rgba(255, 255, 255, 0.16);
   --radius-card: 22px;
   --radius-btn: 16px;
+}
+
+html[data-theme='dark'] {
+  background: linear-gradient(165deg, #3a424c 0%, #2c333d 60%, #262c35 100%);
 }
 
 [data-theme='turquoise'] {
@@ -256,43 +260,62 @@ select option {
 [data-theme='dark'] .neu-card,
 [data-theme='dark'] .neu-btn,
 [data-theme='dark'] .neu-icon-btn,
-[data-theme='dark'] .neu-chip,
 [data-theme='dark'] .neu-segment,
 [data-theme='dark'] .neu-nav {
-  background: rgba(22, 24, 29, 0.72);
-  backdrop-filter: blur(16px);
-  border: 1px solid transparent;
-  background-image:
-    linear-gradient(rgba(22, 24, 29, 0.82), rgba(22, 24, 29, 0.82)),
-    linear-gradient(120deg, #00e5ff, #c026d3);
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
+  background: #323a44;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.45),
-    0 0 18px rgba(0, 229, 255, 0.18);
+    inset 1px 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 28px rgba(12, 16, 22, 0.35);
+}
+
+[data-theme='dark'] .neu-chip {
+  background: #4e5866;
+  color: #f4f6f8;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+[data-theme='dark'] .neu-card .neu-chip {
+  background: #e8eef5;
+  color: #1a2028;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+[data-theme='dark'] .neu-popover,
+[data-theme='dark'] .neu-card.neu-popover,
+[data-theme='dark'] .neu-card.neu-popover:hover {
+  background: #323a44;
+  backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 40px rgba(8, 10, 14, 0.45);
 }
 
 [data-theme='dark'] .neu-card:hover,
 [data-theme='dark'] .neu-btn:hover,
 [data-theme='dark'] .neu-icon-btn:hover {
+  background: #3a424c;
   box-shadow:
-    0 10px 32px rgba(0, 0, 0, 0.5),
-    0 0 22px rgba(0, 229, 255, 0.35),
-    0 0 36px rgba(192, 38, 211, 0.22);
+    inset 1px 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 32px rgba(12, 16, 22, 0.32);
 }
 
 [data-theme='dark'] .neu-btn-primary,
 [data-theme='dark'] .neu-chip-active {
   background: linear-gradient(135deg, #00e5ff, #c026d3);
+  border-color: transparent;
   box-shadow:
-    0 0 22px rgba(0, 229, 255, 0.45),
-    0 0 36px rgba(192, 38, 211, 0.3);
+    inset 1px 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 22px rgba(28, 36, 48, 0.25);
 }
 
 [data-theme='dark'] .neu-input {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(0, 229, 255, 0.28);
-  box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 [data-theme='turquoise'] .neu-card {
@@ -488,4 +511,22 @@ select option {
 [data-theme='pumpkin'] .neu-chip-active {
   background: linear-gradient(135deg, #e8b89a, #c5b4e3);
   color: #3f3832;
+}
+
+.notebook-paper,
+.neu-card.notebook-paper {
+  background-color: #eef1f5;
+  background-image:
+    linear-gradient(rgba(90, 112, 138, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(90, 112, 138, 0.12) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+[data-theme='dark'] .notebook-paper,
+[data-theme='dark'] .neu-card.notebook-paper {
+  background-color: #2c333d;
+  background-image:
+    linear-gradient(rgba(220, 230, 240, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(220, 230, 240, 0.1) 1px, transparent 1px);
+  background-size: 16px 16px;
 }

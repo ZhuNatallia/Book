@@ -3,6 +3,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
 import { ShelfPicker } from './ShelfPicker';
+import { hasMomsShelf } from '../data/shelves';
 import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
 import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2 } from 'lucide-react';
 
@@ -63,7 +64,7 @@ export function RecipeDetail({
 	extraTags = [],
 }: RecipeDetailProps) {
 	const { language, t } = useLanguage();
-	const { theme } = useTheme();
+	const { theme, momsPaper } = useTheme();
 	const [servings, setServings] = useState(recipe.recipe.servings || 4);
 	const [scaling, setScaling] = useState(1);
 	const [activeTab, setActiveTab] = useState<'ingredients' | 'steps'>(
@@ -75,6 +76,7 @@ export function RecipeDetail({
 	const [addedToList, setAddedToList] = useState(false);
 	const [copiedToBook, setCopiedToBook] = useState(false);
 	const isPersonal = !readOnly && !isSampleRecipeId(recipe.recipe.id);
+	const notebook = momsPaper && hasMomsShelf(recipe.recipe.tags);
 	const [notes, setNotes] = useState(recipe.recipe.notes || '');
 	const [imgFailed, setImgFailed] = useState(false);
 	const [photoOpen, setPhotoOpen] = useState(false);
@@ -302,7 +304,9 @@ export function RecipeDetail({
 
 	return (
 		<div
-			className={`fixed inset-0 z-[60] ${theme.bgCard} overflow-hidden flex flex-col`}
+			className={`fixed inset-0 z-[70] overflow-hidden flex flex-col ${
+				notebook ? 'notebook-paper' : theme.bgPrimary
+			}`}
 		>
 			{/* Header Image */}
 			<div className='relative h-64 sm:h-80 flex-shrink-0'>
@@ -323,12 +327,18 @@ export function RecipeDetail({
 					</button>
 				) : (
 					<div
-						className={`w-full h-full ${theme.bgPrimary} flex flex-col items-center justify-center relative`}
+						className={`w-full h-full flex flex-col items-center justify-center relative ${
+							notebook ? '' : theme.bgPrimary
+						}`}
 					>
+						{!notebook && (
+							<>
 						<div className='absolute top-8 right-8 w-20 h-20 bg-orange-200/40 rounded-full' />
 						<div className='absolute bottom-12 left-12 w-16 h-16 bg-rose-200/40 rounded-full' />
 						<div className='absolute top-1/4 left-1/4 w-10 h-10 bg-amber-200/30 rounded-full' />
 						<div className='absolute bottom-1/3 right-1/4 w-8 h-8 bg-orange-200/30 rounded-full' />
+							</>
+						)}
 
 						<div className='relative'>
 							{recipe.recipe.category === 'pastry' ||
