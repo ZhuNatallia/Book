@@ -42,7 +42,7 @@ export function Header({
   recipes,
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
-  const { theme, themeId, setThemeId } = useTheme();
+  const { theme, themeId, setThemeId, momsPaper, setMomsPaper } = useTheme();
   const { isPlus } = usePlan();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>('main');
@@ -95,7 +95,7 @@ export function Header({
   };
 
   return (
-    <header className={`sticky top-0 z-50 ${theme.headerBg} backdrop-blur-md`}>
+    <header className={`sticky top-0 z-50 ${theme.headerBg}`}>
       <div className={`relative max-w-7xl mx-auto px-4 ${compact ? 'py-2' : 'py-4'}`}>
         <div className="flex items-center justify-between">
           <button
@@ -139,7 +139,7 @@ export function Header({
               </button>
 
               {showSettings && (
-                <div className={`absolute right-0 top-12 w-80 max-h-[80vh] overflow-y-auto ${theme.card} z-50`}>
+                <div className={`absolute right-0 top-12 w-80 max-h-[80vh] overflow-y-auto ${theme.card} neu-popover z-[80]`}>
                   {settingsView === 'main' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary}`}>
@@ -358,6 +358,19 @@ export function Header({
                             );
                           })}
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setMomsPaper(!momsPaper)}
+                          className={`mt-3 w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl ${
+                            momsPaper ? theme.tabActiveBg : ''
+                          }`}
+                        >
+                          <div className="text-left">
+                            <p className={`text-sm font-medium ${theme.textPrimary}`}>{t('notebookMoms')}</p>
+                            <p className={`text-xs mt-0.5 ${theme.textSecondary}`}>{t('notebookMomsHint')}</p>
+                          </div>
+                          {momsPaper && <Check className={`w-4 h-4 shrink-0 ${theme.textAccent}`} />}
+                        </button>
                       </div>
                     </>
                   )}

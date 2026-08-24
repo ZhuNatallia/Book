@@ -76,6 +76,9 @@ export function PlanSettings() {
     setPeriodPreview,
     giftNotice,
     redeemCode,
+    canStartTrial,
+    trialNotice,
+    startTrial,
   } = usePlan();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -89,7 +92,18 @@ export function PlanSettings() {
     : null;
 
   const giftUntil = isPlus && subscription?.provider === 'gift' && until;
+  const trialUntil = isPlus && subscription?.provider === 'trial' && until;
   const notice = giftNotice ? giftNoticeText(giftNotice.status, t) : null;
+  const trialLine =
+    trialNotice?.status === 'ok'
+      ? t('planTrialOk')
+      : trialNotice?.status === 'already'
+        ? t('planTrialAlready')
+        : trialNotice?.status === 'already_plus'
+          ? t('planGiftAlreadyPlus')
+          : trialNotice && !trialNotice.ok
+            ? t('planGiftError')
+            : null;
 
   const freeFeatures = [t('planRecipesFree'), t('planImportsFree'), t('planNoAds')];
   const plusFeatures = [t('planRecipesPlus'), t('planImportsPlus'), t('planNoAds')];
@@ -113,9 +127,11 @@ export function PlanSettings() {
           {isPlus ? t('planPlus') : t('planFree')}
           {giftUntil
             ? ` · ${t('planGiftUntil')} ${until}`
-            : isPlus && until
-              ? ` · ${t('planActiveUntil')} ${until}`
-              : ''}
+            : trialUntil
+              ? ` · ${t('planTrialUntil')} ${until}`
+              : isPlus && until
+                ? ` · ${t('planActiveUntil')} ${until}`
+                : ''}
         </p>
         {expiredPlus && (
           <p className={`text-sm mt-1 ${theme.textSecondary}`}>{t('planExpired')}</p>
@@ -123,6 +139,11 @@ export function PlanSettings() {
         {notice && (
           <p className={`text-sm mt-1 ${giftNotice?.ok ? theme.textAccent : theme.textSecondary}`}>
             {notice}
+          </p>
+        )}
+        {trialLine && (
+          <p className={`text-sm mt-1 ${trialNotice?.ok ? theme.textAccent : theme.textSecondary}`}>
+            {trialLine}
           </p>
         )}
       </div>
@@ -233,6 +254,21 @@ export function PlanSettings() {
 
         {!isPlus && (
           <>
+            {canStartTrial && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  if (busy) return;
+                  setBusy(true);
+                  await startTrial();
+                  setBusy(false);
+                }}
+                className={`w-full py-2.5 mb-2 ${theme.btnPrimary} font-medium disabled:opacity-50`}
+              >
+                {t('planTrialCta')}
+              </button>
+            )}
             <button
               type="button"
               disabled

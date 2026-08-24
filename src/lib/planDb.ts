@@ -7,11 +7,15 @@ function monthStartIso(): string {
 }
 
 export async function fetchSubscription(userId: string): Promise<SubscriptionRow | null> {
-  const { data, error } = await supabase
+  const base = 'user_id, plan, period, valid_until, provider';
+  const first = await supabase
     .from('subscriptions')
-    .select('user_id, plan, period, valid_until, provider')
+    .select(`${base}, trial_started_at`)
     .eq('user_id', userId)
     .maybeSingle();
+  const { data, error } = first.error
+    ? await supabase.from('subscriptions').select(base).eq('user_id', userId).maybeSingle()
+    : first;
   if (error || !data) return null;
   const plan: PlanId = data.plan === 'plus' ? 'plus' : 'free';
   const period: PlanPeriod | null =
@@ -22,6 +26,8 @@ export async function fetchSubscription(userId: string): Promise<SubscriptionRow
     period,
     valid_until: data.valid_until ?? null,
     provider: data.provider ?? null,
+    trial_started_at:
+      'trial_started_at' in data ? ((data as { trial_started_at?: string | null }).trial_started_at ?? null) : null,
   };
 }
 
