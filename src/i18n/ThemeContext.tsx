@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Language } from './translations';
 
-export type ThemeId = 'light' | 'dark' | 'turquoise' | 'pumpkin' | 'lavender';
+export type ThemeId = 'light' | 'dark' | 'pumpkin' | 'lavender';
 
 const chrome = {
   card: 'neu-card',
@@ -69,9 +69,9 @@ export const themes: Record<ThemeId, Theme> = {
   light: {
     id: 'light',
     name: { ru: 'Светлая', en: 'Light', de: 'Hell', uk: 'Світла', pl: 'Jasny', it: 'Chiaro', es: 'Claro', fr: 'Clair', kk: 'Ашық' },
-    bgPrimary: 'bg-[#eef2f6]',
-    bgSecondary: 'bg-[#f7f9fc]',
-    bgCard: 'bg-[#eef2f6]',
+    bgPrimary: 'bg-[#faf9f8]',
+    bgSecondary: 'bg-white',
+    bgCard: 'bg-[#faf9f8]',
     accentPrimary: 'bg-[#ff9d6a]',
     accentSecondary: 'bg-[#ffc38a]',
     accentGradient: 'bg-gradient-to-r from-[#ff9d6a] to-[#ffc38a]',
@@ -81,7 +81,7 @@ export const themes: Record<ThemeId, Theme> = {
     textAccent: 'text-[#e07a45]',
     border: 'border-transparent',
     borderAccent: 'border-[#ff9d6a]/40',
-    headerBg: 'bg-[#eef2f6]/90',
+    headerBg: 'bg-[#faf9f8]',
     headerBorder: 'border-transparent',
     headerLogoGradient: 'from-[#ff9d6a] to-[#ffc38a]',
     headerTitleGradient: 'from-[#e07a45] to-[#ff9d6a]',
@@ -101,13 +101,13 @@ export const themes: Record<ThemeId, Theme> = {
     tabActive: 'text-[#e07a45]',
     tabActiveBorder: 'border-[#ff9d6a]',
     tabActiveBg: 'bg-[#ff9d6a]/10',
-    inputBg: 'bg-[#eef2f6]',
+    inputBg: 'bg-white',
     inputText: 'text-[#3a4250]',
     inputBorder: 'border-transparent',
     inputPlaceholder: 'placeholder-[#7b8494]',
-    modalBg: 'bg-[#eef2f6]',
+    modalBg: 'bg-[#faf9f8]',
     modalBorder: 'border-transparent',
-    modalHeaderBg: 'bg-[#f7f9fc]',
+    modalHeaderBg: 'bg-white',
     label: 'text-[#3a4250]',
     ...chrome,
   },
@@ -154,51 +154,6 @@ export const themes: Record<ThemeId, Theme> = {
     modalBorder: 'border-white/15',
     modalHeaderBg: 'bg-[#363e48]',
     label: 'text-white/80',
-    ...chrome,
-  },
-  turquoise: {
-    id: 'turquoise',
-    name: { ru: 'Цветная', en: 'Colorful', de: 'Bunt', uk: 'Кольорова', pl: 'Kolorowy', it: 'Colorata', es: 'Colorida', fr: 'Colorée', kk: 'Түсті' },
-    bgPrimary: 'bg-[#e7f6f4]',
-    bgSecondary: 'bg-[#f4fcfb]',
-    bgCard: 'bg-[#f7fffe]',
-    accentPrimary: 'bg-[#ff9aa2]',
-    accentSecondary: 'bg-[#b5ead7]',
-    accentGradient: 'bg-gradient-to-r from-[#ff9aa2] to-[#b5ead7]',
-    accentHover: 'hover:brightness-105',
-    textPrimary: 'text-[#35555a]',
-    textSecondary: 'text-[#6e8b90]',
-    textAccent: 'text-[#d97a82]',
-    border: 'border-transparent',
-    borderAccent: 'border-[#ff9aa2]/40',
-    headerBg: 'bg-[#e7f6f4]/90',
-    headerBorder: 'border-transparent',
-    headerLogoGradient: 'from-[#ff9aa2] to-[#b5ead7]',
-    headerTitleGradient: 'from-[#d97a82] to-[#7ab8a8]',
-    headerLangActive: 'from-[#ff9aa2] to-[#b5ead7]',
-    headerLangInactive: 'text-[#6e8b90]',
-    headerLangBg: '',
-    headerAddBtn: 'from-[#ff9aa2] to-[#b5ead7]',
-    headerAddBtnHover: 'hover:brightness-105',
-    headerText: 'text-white',
-    bottomNavBg: '',
-    bottomNavBorder: 'border-transparent',
-    bottomNavActive: 'text-[#d97a82]',
-    bottomNavActiveBg: 'bg-white/50',
-    bottomNavInactive: 'text-[#6e8b90]',
-    catFilterActive: 'from-[#ff9aa2] to-[#b5ead7]',
-    catFilterInactive: 'neu-chip',
-    tabActive: 'text-[#d97a82]',
-    tabActiveBorder: 'border-[#ff9aa2]',
-    tabActiveBg: 'bg-[#ff9aa2]/10',
-    inputBg: 'bg-[#e7f6f4]',
-    inputText: 'text-[#35555a]',
-    inputBorder: 'border-transparent',
-    inputPlaceholder: 'placeholder-[#6e8b90]',
-    modalBg: 'bg-[#f7fffe]',
-    modalBorder: 'border-transparent',
-    modalHeaderBg: 'bg-[#e7f6f4]',
-    label: 'text-[#35555a]',
     ...chrome,
   },
   pumpkin: {
@@ -308,9 +263,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [momsPaper, setMomsPaperState] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem('smartrecipe-theme') as ThemeId | null;
-    if (saved && themes[saved]) {
-      setThemeId(saved);
+    const saved = localStorage.getItem('smartrecipe-theme');
+    if (saved && saved in themes) {
+      setThemeId(saved as ThemeId);
+    } else if (saved) {
+      setThemeId('light');
+      localStorage.setItem('smartrecipe-theme', 'light');
     }
     const paper = localStorage.getItem('smartrecipe-moms-paper');
     if (paper === 'off') setMomsPaperState(false);
@@ -330,7 +288,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('smartrecipe-moms-paper', on ? 'on' : 'off');
   };
 
-  const theme = themes[themeId];
+  const theme = themes[themeId] ?? themes.light;
 
   return (
     <ThemeContext.Provider

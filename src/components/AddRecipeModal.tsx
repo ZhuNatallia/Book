@@ -75,7 +75,12 @@ function normalizeUnit(unit: string): string {
   if (u === 'cup' || u.startsWith('стакан')) return 'cup';
   if (['ст л', 'стл', 'tbsp', 'tablespoon'].includes(u)) return 'tbsp';
   if (['ч л', 'чл', 'tsp', 'teaspoon'].includes(u)) return 'tsp';
-  if (['по вкусу', 'pinch'].includes(u) || u.startsWith('щепотк')) return 'tsp';
+  if (
+    ['pinch', 'pinches', 'prise', 'pizzico', 'pizca', 'pincee', 'pincée', 'szczypta', 'шымшым'].includes(u)
+    || u.startsWith('щепотк')
+    || u.startsWith('дрібк')
+  ) return 'pinch';
+  if (u === 'по вкусу') return 'tsp';
   if (['oz', 'унц'].includes(u)) return 'oz';
   if (['lb', 'фунт'].includes(u)) return 'lb';
   return 'g';
@@ -83,13 +88,13 @@ function normalizeUnit(unit: string): string {
 
 // Canonical unit codes stay in state and in the database; these are the ones the
 // dictionary can render in the active language. Anything else is shown as-is.
-const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 
 // Unit alternatives shared by both patterns below. Longer alternatives come first so the
 // longest match wins, and full Russian words are included because sources write both
 // "500 г" and "500 грамм".
 const UNIT_ALT =
-  'килограмм[а-яё]*|миллилитр[а-яё]*|грамм[а-яё]*|литр[а-яё]*|штук[а-яё]*|стакан[а-яё]*|щепотк[а-яё]*|ст\\.?\\s*л\\.?|ч\\.?\\s*л\\.?|гр|кг|мл|шт|г|л|kg|ml|pcs|piece|cup|tbsp|tsp|oz|lb|pinch|g|l';
+  'килограмм[а-яё]*|миллилитр[а-яё]*|грамм[а-яё]*|литр[а-яё]*|штук[а-яё]*|стакан[а-яё]*|щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым|ст\\.?\\s*л\\.?|ч\\.?\\s*л\\.?|гр|кг|мл|шт|г|л|kg|ml|pcs|piece|cup|tbsp|tsp|oz|lb|g|l';
 
 const QTY = '\\d+(?:[/.,]\\d+)?';
 
@@ -128,6 +133,17 @@ function parseIngredientString(raw: string): { quantity: number; unit: string; n
     if (name) {
       return { quantity: toQuantity(trail[2]), unit: normalizeUnit(trail[3]), name };
     }
+  }
+
+  const pinchLead = text.match(/^(щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым)\s+(.+)$/i);
+  if (pinchLead) {
+    return { quantity: 1, unit: 'pinch', name: pinchLead[2].replace(/\s{2,}/g, ' ').trim() };
+  }
+
+  const pinchTrail = text.match(/^(.+?)[\s,\-–—]+(щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым)\.?$/i);
+  if (pinchTrail) {
+    const name = pinchTrail[1].replace(/\s{2,}/g, ' ').trim();
+    if (name) return { quantity: 1, unit: 'pinch', name };
   }
 
   return { quantity: 1, unit: 'pcs', name: text };
@@ -669,7 +685,7 @@ export function AddRecipeModal({
                           value={ing.unit}
                           onChange={(unit) => updateIngredient(idx, 'unit', unit)}
                           className={`px-2 py-2.5 ${theme.input} text-base`}
-                          options={['g', 'kg', 'ml', 'l', 'pcs', 'tbsp', 'tsp', 'cup'].map((u) => ({ value: u, label: t(u) }))}
+                          options={['g', 'kg', 'ml', 'l', 'pcs', 'tbsp', 'tsp', 'pinch', 'cup'].map((u) => ({ value: u, label: t(u) }))}
                         />
                       </div>
                       <input type="text" value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)} className={`flex-1 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder={t('ingredientPlaceholder')} />

@@ -26,7 +26,7 @@ function videoSourceLabel(url?: string) {
 }
 
 // Units are stored in canonical form and rendered from the dictionary of the active language
-const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 
 const SPEECH_LOCALES: Record<string, string> = {
 	ru: 'ru-RU',
@@ -648,7 +648,7 @@ export function RecipeDetail({
 								<button
 									type='button'
 									onClick={isSpeaking ? stopReading : readCurrentStep}
-									className={`w-full py-3 rounded-2xl ${theme.accentGradient} text-white font-medium flex items-center justify-center gap-2`}
+									className={`w-full py-3 rounded-2xl ${theme.accentGradient} ${theme.headerText} font-medium flex items-center justify-center gap-2`}
 								>
 									<Volume2 className='w-5 h-5' />
 									{isSpeaking

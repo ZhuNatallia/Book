@@ -81,12 +81,11 @@ export function Header({
 
   const currentLanguage = languages.find((l) => l.code === language) ?? languages[0];
 
-  const themeOptions: { id: ThemeId; name: string; preview: string }[] = [
-    { id: 'light', name: themes.light.name[language], preview: 'from-[#ff9d6a] to-[#ffc38a]' },
-    { id: 'dark', name: themes.dark.name[language], preview: 'from-[#00e5ff] to-[#c026d3]' },
-    { id: 'turquoise', name: themes.turquoise.name[language], preview: 'from-[#ff9aa2] to-[#b5ead7]' },
-    { id: 'pumpkin', name: themes.pumpkin.name[language], preview: 'from-[#e8b89a] to-[#c5b4e3]' },
-    { id: 'lavender', name: themes.lavender.name[language], preview: 'from-[#c5b4e3] to-[#a78bfa]' },
+  const themeOptions: { id: ThemeId; name: string; preview: string; checkDark: boolean }[] = [
+    { id: 'light', name: themes.light.name[language], preview: 'from-[#ffffff] to-[#c8ccd2]', checkDark: true },
+    { id: 'dark', name: themes.dark.name[language], preview: 'from-[#2c333d] to-[#1e232a]', checkDark: false },
+    { id: 'pumpkin', name: themes.pumpkin.name[language], preview: 'from-[#f5eee6] to-[#e8b89a]', checkDark: true },
+    { id: 'lavender', name: themes.lavender.name[language], preview: 'from-[#c5b4e3] to-[#a78bfa]', checkDark: false },
   ];
 
   const closeSettings = () => {
@@ -105,7 +104,7 @@ export function Header({
             title={t('recipes')}
           >
             <div className={`w-10 h-10 bg-gradient-to-br ${theme.headerLogoGradient} rounded-2xl flex items-center justify-center neu-btn-primary`}>
-              <ChefHat className="w-6 h-6 text-white" />
+              <ChefHat className={`w-6 h-6 ${theme.headerText}`} />
             </div>
             <h1 className={`text-xl font-bold bg-gradient-to-r ${theme.headerTitleGradient} bg-clip-text text-transparent ${compact ? 'hidden' : ''}`}>
               {t('appName')}
@@ -198,7 +197,7 @@ export function Header({
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${themeOptions.find(t => t.id === themeId)?.preview || 'from-amber-400 to-rose-400'}`} />
+                            <div className={`w-5 h-5 rounded-full bg-gradient-to-br ring-1 ring-black/15 ${themeOptions.find(t => t.id === themeId)?.preview || 'from-[#ffffff] to-[#c8ccd2]'}`} />
                             <span className="text-base font-medium">{t('themeLabel')}</span>
                           </div>
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
@@ -348,8 +347,8 @@ export function Header({
                                     : 'hover:bg-gray-50'
                                 }`}
                               >
-                                <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${opt.preview} shadow-md flex items-center justify-center`}>
-                                  {isActive && <Check className="w-4 h-4 text-white" />}
+                                <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${opt.preview} shadow-md ring-1 ${opt.checkDark ? 'ring-black/15' : 'ring-white/25'} flex items-center justify-center`}>
+                                  {isActive && <Check className={`w-4 h-4 ${opt.checkDark ? 'text-[#3a4250]' : 'text-white'}`} />}
                                 </div>
                                 <span className={`text-sm font-medium ${isActive ? theme.textAccent : theme.textSecondary}`}>
                                   {opt.name}

@@ -6,7 +6,7 @@ import { useTheme } from '../i18n/ThemeContext';
 import { mergeIngredientLines } from '../lib/ingredientMerge';
 import { addDaysISO, formatDayMonth, mondayISO, shiftWeek } from '../lib/week';
 
-const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 const SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const WEEKDAYS = ['weekdayMon', 'weekdayTue', 'weekdayWed', 'weekdayThu', 'weekdayFri', 'weekdaySat', 'weekdaySun'];
 const LOCALES: Record<string, string> = {

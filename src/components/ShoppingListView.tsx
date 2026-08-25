@@ -25,7 +25,7 @@ const SPEECH_LOCALES: Record<string, string> = {
 	fr: 'fr-FR',
 };
 
-const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'cup'];
+const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 
 interface ShoppingListViewProps {
 	items: ShoppingItem[];

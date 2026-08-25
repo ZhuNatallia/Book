@@ -404,7 +404,7 @@ function extractLdJsonBlocks(html: string): any[] {
 }
 
 // Measurement units (RU + EN). Uses negative lookbehind instead of \b so it matches after stripped emoji.
-const MEASURE = /(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|щепотк|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece)\b/i;
+const MEASURE = /(?<!\w)(?:\d+[.,]?\d*\s*)?(щепотк[а-яё]*|pinch(?:es)?)\b|(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece)\b/i;
 
 const FB_SLOGAN_RE =
   /^(facebook|log\s*in(?:to\s+facebook)?|explore what you love|исследуйте (?:то, что|вещи, которые) вы любите|войти(?:\s+на\s+facebook)?|вхід)$/i;
@@ -1319,7 +1319,7 @@ Respond in ${llmLangName(targetLang)}. Translate if the source is in a different
 Return ONLY valid JSON with these keys:
 - title: the dish name ONLY (e.g. "Шоколадное печенье"). Never include author handles (@username), account names, platform labels ("Instagram Reel"), or engagement numbers. If no clear dish name exists, return "".
 - description: brief intro / context sentence(s) only (max 2 sentences, or empty string "")
-- ingredients: array of strings, each one ingredient with quantity + unit + name, e.g. "200г муки" or "2 яйца"
+- ingredients: array of strings, each one ingredient with quantity + unit + name, e.g. "200г муки", "2 яйца", "щепотка соли"
 - instructions: array of strings, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
 
 If no recipe is found return { "title": "", "description": "", "ingredients": [], "instructions": [] }.

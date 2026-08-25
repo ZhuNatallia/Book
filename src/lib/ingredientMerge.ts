@@ -55,6 +55,11 @@ export function normalizeMergeUnit(unit: string): string {
   if (u === 'cup' || u.startsWith('стакан')) return 'cup';
   if (['ст л', 'стл', 'tbsp', 'tablespoon'].includes(u)) return 'tbsp';
   if (['ч л', 'чл', 'tsp', 'teaspoon'].includes(u)) return 'tsp';
+  if (
+    ['pinch', 'pinches', 'prise', 'pizzico', 'pizca', 'pincee', 'pincée', 'szczypta', 'шымшым'].includes(u)
+    || u.startsWith('щепотк')
+    || u.startsWith('дрібк')
+  ) return 'pinch';
   return u;
 }
 
