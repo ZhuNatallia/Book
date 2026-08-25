@@ -512,3 +512,94 @@ html[data-theme='dark'] {
     linear-gradient(90deg, rgba(220, 230, 240, 0.1) 1px, transparent 1px);
   background-size: 16px 16px;
 }
+
+/* Ingredients and steps on Mom's notebook: ink on the grid, no chips. */
+.notebook-hand {
+  font-family: Caveat, 'Segoe Script', cursive;
+  font-size: 1.45rem;
+  line-height: 32px;
+  font-weight: 600;
+  color: #2c4a78;
+}
+
+[data-theme='dark'] .notebook-hand {
+  color: #d7e3f5;
+}
+
+.notebook-title {
+  font-family: Caveat, 'Segoe Script', cursive;
+  font-size: 1.85rem;
+  line-height: 32px;
+  font-weight: 700;
+  color: #2c4a78;
+}
+
+.notebook-desc {
+  font-family: Caveat, 'Segoe Script', cursive;
+  font-size: 1.45rem;
+  line-height: 32px;
+  font-weight: 500;
+  color: #4a6490;
+}
+
+[data-theme='dark'] .notebook-title {
+  color: #e8eef8;
+}
+
+[data-theme='dark'] .notebook-desc {
+  color: #c5d3e8;
+}
+
+.notebook-ing {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 2px;
+  min-height: 32px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.notebook-ing.is-checked .notebook-ing-text {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.notebook-ing input[type='checkbox'] {
+  flex-shrink: 0;
+  margin-top: 8px;
+  accent-color: #2c4a78;
+}
+
+[data-theme='dark'] .notebook-ing input[type='checkbox'] {
+  accent-color: #d7e3f5;
+}
+
+.notebook-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0 2px 16px;
+}
+
+.notebook-step.is-current .notebook-step-num {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.notebook-step-num {
+  flex-shrink: 0;
+  min-width: 1.6rem;
+  font-weight: 700;
+}
+
+.notebook-qty {
+  flex-shrink: 0;
+  min-width: 4.5rem;
+}

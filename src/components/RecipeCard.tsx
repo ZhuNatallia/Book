@@ -270,6 +270,18 @@ export function RecipeCard({
 							})}
 						</span>
 					)}
+					{notebook && isPersonal && (recipe.recipe.tags?.length ?? 0) > 0 && (
+						<div className="flex flex-wrap justify-end gap-1 max-w-[70%]">
+							{recipe.recipe.tags!.map((tag) => (
+								<span
+									key={tag}
+									className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/95 dark:bg-white/15 backdrop-blur-sm text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20"
+								>
+									{shelfLabel(tag, t)}
+								</span>
+							))}
+						</div>
+					)}
 					<div className='px-2.5 py-1 bg-white/95 dark:bg-white/15 backdrop-blur-sm rounded-full text-xs font-semibold text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20'>
 						{tCategory(recipe.recipe.category)}
 					</div>
@@ -278,11 +290,15 @@ export function RecipeCard({
 
 			<div className='p-4 flex flex-col flex-1'>
 				<h3
-					className={`font-bold text-lg ${theme.textPrimary} mb-1 line-clamp-1`}
+					className={
+						notebook
+							? 'notebook-title mb-1 line-clamp-2'
+							: `font-bold text-lg ${theme.textPrimary} mb-1 line-clamp-1`
+					}
 				>
 					{translation.title}
 				</h3>
-				{isPersonal && (recipe.recipe.tags?.length ?? 0) > 0 && (
+				{!notebook && isPersonal && (recipe.recipe.tags?.length ?? 0) > 0 && (
 					<div className="flex flex-wrap gap-1 mb-2">
 						{recipe.recipe.tags!.map((tag) => (
 							<span
@@ -296,7 +312,11 @@ export function RecipeCard({
 				)}
 				{/* Always two lines tall, so cards in a row keep their buttons on one level */}
 				<p
-					className={`text-base ${theme.textSecondary} line-clamp-2 min-h-[3rem] mb-3`}
+					className={
+						notebook
+							? 'notebook-desc line-clamp-2 min-h-[64px] mb-3'
+							: `text-base ${theme.textSecondary} line-clamp-2 min-h-[3rem] mb-3`
+					}
 				>
 					{translation.description || '\u00A0'}
 				</p>

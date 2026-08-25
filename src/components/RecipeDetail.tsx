@@ -417,11 +417,11 @@ export function RecipeDetail({
 			<div className='flex-1 overflow-y-auto pb-4'>
 				{/* Title block — in document flow, below photo */}
 				<div className={`px-4 sm:px-6 pt-5 pb-4 border-b ${theme.border}`}>
-					<h1 className={`text-2xl sm:text-3xl font-bold ${theme.textPrimary} line-clamp-3`}>
+					<h1 className={notebook ? 'notebook-title line-clamp-3' : `text-2xl sm:text-3xl font-bold ${theme.textPrimary} line-clamp-3`}>
 						{translation.title}
 					</h1>
 					{translation.description && (
-						<p className={`${theme.textSecondary} text-base mt-2 leading-relaxed whitespace-pre-line`}>
+						<p className={notebook ? 'notebook-desc mt-2 whitespace-pre-line' : `${theme.textSecondary} text-base mt-2 leading-relaxed whitespace-pre-line`}>
 							{translation.description}
 						</p>
 					)}
@@ -587,7 +587,7 @@ export function RecipeDetail({
 				{/* Tab Content */}
 				<div className='p-4'>
 					{(activeTab === 'ingredients' || showWatchInsteadOfSteps) && (
-						<div className='space-y-3'>
+						<div className={notebook ? '' : 'space-y-3'}>
 							{realIngredients.map((ing) => {
 								const name = getIngredientName(ing);
 								const scaledQty =
@@ -597,11 +597,15 @@ export function RecipeDetail({
 								return (
 									<label
 										key={ing.id}
-										className={`flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer border ${
-											isChecked
-												? `${theme.tabActiveBg} border-${theme.borderAccent || 'orange-500'}`
-												: `${theme.bgSecondary} border-transparent hover:bg-black/5 dark:hover:bg-white/5`
-										}`}
+										className={
+											notebook
+												? `notebook-hand notebook-ing ${isChecked ? 'is-checked' : ''}`
+												: `flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer border ${
+														isChecked
+															? `${theme.tabActiveBg} border-${theme.borderAccent || 'orange-500'}`
+															: `${theme.bgSecondary} border-transparent hover:bg-black/5 dark:hover:bg-white/5`
+													}`
+										}
 									>
 										<input
 											type='checkbox'
@@ -609,14 +613,18 @@ export function RecipeDetail({
 											onChange={() => toggleIngredientCheck(ing.id)}
 											className='w-5 h-5 rounded border-gray-400 dark:border-gray-500 text-orange-500 focus:ring-orange-500 bg-transparent'
 										/>
-										<span className='flex-1 flex items-baseline'>
+										<span className='flex-1 flex items-baseline notebook-ing-text'>
 											<span
-												className={`font-bold ${theme.textAccent} min-w-[70px] inline-block`}
+												className={
+													notebook
+														? 'notebook-qty'
+														: `font-bold ${theme.textAccent} min-w-[70px] inline-block`
+												}
 											>
 												{scaledQty % 1 === 0 ? scaledQty : scaledQty.toFixed(1)}{' '}
 												{formatUnit(ing.unit)}
 											</span>
-											<span className={`${theme.textPrimary} ml-2 font-medium text-base`}>
+											<span className={notebook ? 'ml-2' : `${theme.textPrimary} ml-2 font-medium text-base`}>
 												{name}
 											</span>
 										</span>
@@ -643,12 +651,12 @@ export function RecipeDetail({
 					)}
 
 					{activeTab === 'steps' && !showWatchInsteadOfSteps && (
-						<div className='space-y-4'>
+						<div className={notebook ? '' : 'space-y-4'}>
 							{realSteps.length > 0 && (
 								<button
 									type='button'
 									onClick={isSpeaking ? stopReading : readCurrentStep}
-									className={`w-full py-3 rounded-2xl ${theme.accentGradient} ${theme.headerText} font-medium flex items-center justify-center gap-2`}
+									className={`w-full py-3 rounded-2xl ${theme.accentGradient} ${theme.headerText} font-medium flex items-center justify-center gap-2 ${notebook ? 'mb-4' : ''}`}
 								>
 									<Volume2 className='w-5 h-5' />
 									{isSpeaking
@@ -661,19 +669,27 @@ export function RecipeDetail({
 									type='button'
 									key={step.id}
 									onClick={() => setCurrentStepIndex(idx)}
-									className={`w-full text-left flex gap-4 items-start p-4 rounded-2xl ${
-										idx === currentStepIndex
-											? `${theme.tabActiveBg} border ${theme.borderAccent}`
-											: theme.bgSecondary
-									}`}
+									className={
+										notebook
+											? `notebook-hand notebook-step ${idx === currentStepIndex ? 'is-current' : ''}`
+											: `w-full text-left flex gap-4 items-start p-4 rounded-2xl ${
+													idx === currentStepIndex
+														? `${theme.tabActiveBg} border ${theme.borderAccent}`
+														: theme.bgSecondary
+												}`
+									}
 								>
+									{notebook ? (
+										<span className="notebook-step-num">{idx + 1}.</span>
+									) : (
 									<div
 										className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${theme.btnPrimary}`}
 									>
 										{idx + 1}
 									</div>
+									)}
 									<div className='flex-1'>
-										<p className={`${theme.textPrimary} font-medium text-base`}>
+										<p className={notebook ? '' : `${theme.textPrimary} font-medium text-base`}>
 											{getStepInstruction(step)}
 										</p>
 										{step.timerMinutes && (
