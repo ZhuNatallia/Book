@@ -106,7 +106,7 @@ export function PlanSettings() {
             : null;
 
   const freeFeatures = [t('planRecipesFree'), t('planImportsFree'), t('planNoAds')];
-  const plusFeatures = [t('planRecipesPlus'), t('planImportsPlus'), t('planNoAds')];
+  const plusFeatures = [t('planRecipesPlus'), t('planImportsPlus'), t('planVoiceSteps'), t('planNoAds')];
 
   const handleRedeem = async (e: FormEvent) => {
     e.preventDefault();

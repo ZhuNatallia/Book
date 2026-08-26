@@ -262,7 +262,7 @@ export function RecipeCard({
 
 				<div className='absolute bottom-3 right-3 flex flex-col items-end gap-1 z-10'>
 					{isPersonal && recipe.recipe.lastCookedAt && (
-						<span className='px-2 py-0.5 bg-black/45 text-white text-[10px] font-medium rounded-full backdrop-blur-sm'>
+						<span className='px-2 py-0.5 bg-black/45 text-white text-[10px] font-medium rounded-full backdrop-blur-sm whitespace-nowrap'>
 							{t('lastCooked')}{' '}
 							{new Date(recipe.recipe.lastCookedAt).toLocaleDateString(language, {
 								day: 'numeric',
@@ -270,19 +270,19 @@ export function RecipeCard({
 							})}
 						</span>
 					)}
-					{notebook && isPersonal && (recipe.recipe.tags?.length ?? 0) > 0 && (
-						<div className="flex flex-wrap justify-end gap-1 max-w-[70%]">
+					{isPersonal && (recipe.recipe.tags?.length ?? 0) > 0 && (
+						<div className="flex flex-wrap justify-end gap-1">
 							{recipe.recipe.tags!.map((tag) => (
 								<span
 									key={tag}
-									className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/95 dark:bg-white/15 backdrop-blur-sm text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20"
+									className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/95 dark:bg-white/15 backdrop-blur-sm text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20 whitespace-nowrap"
 								>
 									{shelfLabel(tag, t)}
 								</span>
 							))}
 						</div>
 					)}
-					<div className='px-2.5 py-1 bg-white/95 dark:bg-white/15 backdrop-blur-sm rounded-full text-xs font-semibold text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20'>
+					<div className='px-2.5 py-1 bg-white/95 dark:bg-white/15 backdrop-blur-sm rounded-full text-xs font-semibold text-zinc-700 dark:text-white shadow-sm border border-zinc-200/50 dark:border-white/20 whitespace-nowrap'>
 						{tCategory(recipe.recipe.category)}
 					</div>
 				</div>
@@ -298,18 +298,6 @@ export function RecipeCard({
 				>
 					{translation.title}
 				</h3>
-				{!notebook && isPersonal && (recipe.recipe.tags?.length ?? 0) > 0 && (
-					<div className="flex flex-wrap gap-1 mb-2">
-						{recipe.recipe.tags!.map((tag) => (
-							<span
-								key={tag}
-								className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${theme.chip}`}
-							>
-								{shelfLabel(tag, t)}
-							</span>
-						))}
-					</div>
-				)}
 				{/* Always two lines tall, so cards in a row keep their buttons on one level */}
 				<p
 					className={

@@ -12,7 +12,7 @@ import { useOnline } from '../lib/online';
 import { normalizeSourceUrl } from '../lib/urlNorm';
 import { usePlan } from '../i18n/PlanContext';
 import { isQuotaError } from '../lib/plan';
-import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle } from 'lucide-react';
+import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle, Mic } from 'lucide-react';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -44,6 +44,18 @@ interface ParsedRecipe {
 
 const capitalizeFirst = (s: string): string =>
   s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s;
+
+const SPEECH_LOCALES: Record<string, string> = {
+  ru: 'ru-RU',
+  en: 'en-US',
+  de: 'de-DE',
+  uk: 'uk-UA',
+  pl: 'pl-PL',
+  it: 'it-IT',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  kk: 'kk-KZ',
+};
 
 
 function detectCategory(text: string): string {
@@ -171,7 +183,7 @@ export function AddRecipeModal({
 }: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
-  const { canAddRecipe, canImport, recordImport } = usePlan();
+  const { canAddRecipe, canImport, recordImport, isPlus } = usePlan();
   const online = useOnline();
   const showPersonalFields = !editingRecipe || !isSampleRecipeId(editingRecipe.recipe.id);
   const unitLabel = (u: string) => (UNIT_KEYS.includes(u) ? t(u) : u);
@@ -196,6 +208,8 @@ export function AddRecipeModal({
   const [carbs, setCarbs] = useState('');
   const [ingredients, setIngredients] = useState([{ quantity: '1', unit: 'g', name: '' }]);
   const [steps, setSteps] = useState([{ instruction: '', timerMinutes: '' as string }]);
+  const [recordingStep, setRecordingStep] = useState<number | null>(null);
+  const recognitionRef = useRef<{ stop: () => void; abort: () => void } | null>(null);
 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -256,6 +270,90 @@ export function AddRecipeModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingRecipe, language]);
 
+  const stopStepVoice = () => {
+    try {
+      recognitionRef.current?.abort();
+    } catch {
+      // already stopped
+    }
+    recognitionRef.current = null;
+    setRecordingStep(null);
+  };
+
+  useEffect(() => {
+    if (!isOpen) stopStepVoice();
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // already stopped
+      }
+    };
+  }, [isOpen]);
+
+  const handleVoiceStep = (idx: number) => {
+    if (!isPlus) {
+      onNeedPlan?.();
+      return;
+    }
+    if (recordingStep === idx) {
+      stopStepVoice();
+      return;
+    }
+
+    const previous = recognitionRef.current;
+    recognitionRef.current = null;
+    try {
+      previous?.abort();
+    } catch {
+      // already stopped
+    }
+
+    const SpeechRecognitionCtor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      alert(t('voiceUnsupported'));
+      setRecordingStep(null);
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript.trim();
+      if (!transcript) return;
+      setSteps((prev) =>
+        prev.map((s, i) => {
+          if (i !== idx) return s;
+          const merged = s.instruction.trim()
+            ? `${s.instruction.trim()} ${transcript}`
+            : transcript;
+          return { ...s, instruction: capitalizeFirst(merged) };
+        }),
+      );
+    };
+    recognition.onerror = () => {
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+        setRecordingStep(null);
+      }
+    };
+    recognition.onend = () => {
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+        setRecordingStep(null);
+      }
+    };
+
+    recognitionRef.current = recognition;
+    setRecordingStep(idx);
+    recognition.start();
+  };
+
   const addIngredient = () => setIngredients([...ingredients, { quantity: '1', unit: 'g', name: '' }]);
   const removeIngredient = (index: number) => setIngredients(ingredients.filter((_, i) => i !== index));
   const updateIngredient = (index: number, field: string, value: string) => {
@@ -266,7 +364,10 @@ export function AddRecipeModal({
   };
 
   const addStep = () => setSteps([...steps, { instruction: '', timerMinutes: '' }]);
-  const removeStep = (index: number) => setSteps(steps.filter((_, i) => i !== index));
+  const removeStep = (index: number) => {
+    if (recordingStep !== null) stopStepVoice();
+    setSteps(steps.filter((_, i) => i !== index));
+  };
   const updateStep = (index: number, field: string, value: string) => {
     const updated = [...steps];
     // @ts-expect-error dynamic field update
@@ -708,6 +809,21 @@ export function AddRecipeModal({
                     <div key={idx} className="flex items-start gap-2">
                       <span className={`w-6 h-6 ${theme.tabActiveBg} ${theme.textAccent} rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 mt-1`}>{idx + 1}</span>
                       <textarea value={step.instruction} onChange={(e) => updateStep(idx, 'instruction', capitalizeFirst(e.target.value))} rows={2} className={`flex-1 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder={t('stepPlaceholder')} />
+                      <button
+                        type="button"
+                        onClick={() => handleVoiceStep(idx)}
+                        className={`p-2 mt-1 rounded-full shrink-0 transition-colors ${
+                          recordingStep === idx
+                            ? 'bg-red-500 text-white animate-pulse'
+                            : isPlus
+                              ? `bg-gray-200 text-gray-600 hover:bg-gray-300`
+                              : 'bg-gray-100 text-gray-400'
+                        }`}
+                        title={isPlus ? t('voiceStep') : t('planLimitVoice')}
+                        aria-label={isPlus ? t('voiceStep') : t('planLimitVoice')}
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
                       <input type="text" value={step.timerMinutes} onChange={(e) => updateStep(idx, 'timerMinutes', e.target.value)} className={`w-16 px-2 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-lg text-base ${theme.inputPlaceholder}`} placeholder={t('minutes')} title={t('stepTimer')} />
                       {steps.length > 1 && (
                         <button type="button" onClick={() => removeStep(idx)} className="p-2 text-gray-400 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
