@@ -9,10 +9,13 @@ export const RECIPE_CATEGORIES = [
 	'pizza',
 	'pastry',
 	'dessert',
+	'creams',
+	'sauces',
 	'soup',
 	'salad',
 	'healthy',
 	'preserves',
+	'tips',
 	'other',
 ] as const;
 

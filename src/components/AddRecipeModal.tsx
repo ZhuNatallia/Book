@@ -68,6 +68,9 @@ function detectCategory(text: string): string {
   if (t.includes('салат') || t.includes('salad'))                                                                  return 'salad';
   if (t.includes('суп') || t.includes('soup'))                                                                     return 'soup';
   if (t.includes('пп') || t.includes('healthy'))                                                                   return 'healthy';
+  if (t.includes('крем') || t.includes('ganache') || t.includes('buttercream') || t.includes('frosting'))         return 'creams';
+  if (t.includes('соус') || t.includes('sauce'))                                                                   return 'sauces';
+  if (t.includes('совет') || t.includes('порад') || t.includes('tips') || t.includes('tipp') || t.includes('conseil')) return 'tips';
   return ''; // no confident match — user must select
 }
 
