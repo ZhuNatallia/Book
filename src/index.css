@@ -21,7 +21,7 @@ select option {
 
 :root,
 [data-theme='light'] {
-  color-scheme: light;
+  color-scheme: only light;
   --surf: #faf9f8;
   --surf-2: #ffffff;
   --card: #faf9f8;
@@ -43,7 +43,7 @@ html[data-theme='light'] {
 }
 
 [data-theme='dark'] {
-  color-scheme: dark;
+  color-scheme: only dark;
   --surf: #2c333d;
   --surf-2: #363e48;
   --card: #323a44;
@@ -65,7 +65,7 @@ html[data-theme='dark'] {
 }
 
 [data-theme='pumpkin'] {
-  color-scheme: light;
+  color-scheme: only light;
   --surf: #f5eee6;
   --surf-2: #faf6f1;
   --card: #fffaf5;
@@ -83,7 +83,7 @@ html[data-theme='dark'] {
 }
 
 [data-theme='lavender'] {
-  color-scheme: light;
+  color-scheme: only light;
   --surf: #efeaf8;
   --surf-2: #f7f4fc;
   --card: #efeaf8;

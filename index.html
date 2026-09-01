@@ -1,7 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="only light" />
+    <script>
+      (function () {
+        var theme = 'light';
+        try {
+          theme = localStorage.getItem('smartrecipe-theme') || 'light';
+        } catch (e) {}
+        if (theme !== 'dark' && theme !== 'pumpkin' && theme !== 'lavender' && theme !== 'light') {
+          theme = 'light';
+        }
+        var scheme = theme === 'dark' ? 'only dark' : 'only light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = scheme;
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) meta.setAttribute('content', scheme);
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,10 +30,15 @@
     <link rel="apple-touch-icon" href="/pwa-icon.svg" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Recipe Book</title>
-    <meta property="og:image" content="https://bolt.new/static/og_default.png" />
+    <title>Моя книга рецептов</title>
+    <meta property="og:title" content="Моя книга рецептов" />
+    <meta property="og:description" content="Личная книга рецептов" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://flourishing-stroopwafel-44559a.netlify.app/book-cover.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://bolt.new/static/og_default.png" />
+    <meta name="twitter:title" content="Моя книга рецептов" />
+    <meta name="twitter:description" content="Личная книга рецептов" />
+    <meta name="twitter:image" content="https://flourishing-stroopwafel-44559a.netlify.app/book-cover.png" />
   </head>
   <body>
     <div id="root"></div>

@@ -256,29 +256,51 @@ interface ThemeContextType {
   setMomsPaper: (on: boolean) => void;
 }
 
+function applyAppColorScheme(themeId: ThemeId) {
+  const scheme = themeId === 'dark' ? 'only dark' : 'only light';
+  const root = document.documentElement;
+  root.setAttribute('data-theme', themeId);
+  root.style.colorScheme = scheme;
+  let meta = document.querySelector('meta[name="color-scheme"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute('name', 'color-scheme');
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute('content', scheme);
+}
+
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeId, setThemeId] = useState<ThemeId>('light');
-  const [momsPaper, setMomsPaperState] = useState(true);
-
-  useEffect(() => {
+function readSavedTheme(): ThemeId {
+  try {
     const saved = localStorage.getItem('smartrecipe-theme');
-    if (saved && saved in themes) {
-      setThemeId(saved as ThemeId);
-    } else if (saved) {
-      setThemeId('light');
-      localStorage.setItem('smartrecipe-theme', 'light');
-    }
-    const paper = localStorage.getItem('smartrecipe-moms-paper');
-    if (paper === 'off') setMomsPaperState(false);
-  }, []);
+    if (saved && saved in themes) return saved as ThemeId;
+    if (saved) localStorage.setItem('smartrecipe-theme', 'light');
+  } catch {
+    /* private mode */
+  }
+  return 'light';
+}
+
+function readMomsPaper(): boolean {
+  try {
+    return localStorage.getItem('smartrecipe-moms-paper') !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [themeId, setThemeId] = useState<ThemeId>(readSavedTheme);
+  const [momsPaper, setMomsPaperState] = useState(readMomsPaper);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', themeId);
+    applyAppColorScheme(themeId);
   }, [themeId]);
 
   const handleSetThemeId = (id: ThemeId) => {
+    applyAppColorScheme(id);
     setThemeId(id);
     localStorage.setItem('smartrecipe-theme', id);
   };
