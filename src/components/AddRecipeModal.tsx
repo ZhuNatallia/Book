@@ -186,13 +186,14 @@ export function AddRecipeModal({
 }: AddRecipeModalProps) {
   const { language, t, tCategory } = useLanguage();
   const { theme } = useTheme();
-  const { canAddRecipe, canImport, recordImport, isPlus } = usePlan();
+  const { canAddRecipe, canImport, recordImport, isPlus, recipeCount, recipeLimit } = usePlan();
   const online = useOnline();
   const showPersonalFields = !editingRecipe || !isSampleRecipeId(editingRecipe.recipe.id);
   const unitLabel = (u: string) => (UNIT_KEYS.includes(u) ? t(u) : u);
   const [activeTab, setActiveTab] = useState<'manual' | 'ai'>('manual');
   const [isParsing, setIsParsing] = useState(false);
-  const [parseResult, setParseResult] = useState<ParsedRecipe | null>(null);
+  const [parseResults, setParseResults] = useState<ParsedRecipe[]>([]);
+  const [selectedParsed, setSelectedParsed] = useState<boolean[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [loadingPlatform, setLoadingPlatform] = useState('');
   const [importUrl, setImportUrl] = useState('');
@@ -220,6 +221,7 @@ export function AddRecipeModal({
   const [tags, setTags] = useState<string[]>([]);
 
   const isEditMode = !!editingRecipe;
+  const parseResult = parseResults.length === 1 ? parseResults[0] : null;
 
   // Centralised reset — no external deps so it is always stable
   const resetForm = () => {
@@ -227,7 +229,7 @@ export function AddRecipeModal({
     setCalories(''); setProtein(''); setFat(''); setCarbs('');
     setIngredients([{ quantity: '1', unit: 'g', name: '' }]);
     setSteps([{ instruction: '', timerMinutes: '' }]);
-    setImportUrl(''); setParseResult(null); setParseError(null); setLoadingPlatform('');
+    setImportUrl(''); setParseResults([]); setSelectedParsed([]); setParseError(null); setLoadingPlatform('');
     setImportingStep(0); setImageUrl(undefined); setIsCompressing(false); setActiveTab('manual');
     setNotes(''); setTags([]);
   };
@@ -422,7 +424,8 @@ export function AddRecipeModal({
     }
     setDuplicateRecipe(null);
     // Clear stale state from a previous import
-    setParseResult(null);
+    setParseResults([]);
+    setSelectedParsed([]);
     setParseError(null);
     setImageUrl(undefined);
 
@@ -446,40 +449,62 @@ export function AddRecipeModal({
       if (error || data?.error) throw new Error(error?.message ?? data?.error);
       setImportingStep(3);
 
-      const parsedSteps: { instruction: string; timerMinutes?: number }[] =
-        (data.instructions ?? []).map((instr: string) => {
-          const timer = instr.match(/(\d+)\s*(мин|min|minutes)/i);
-          return { instruction: instr, timerMinutes: timer ? parseInt(timer[1]) : undefined };
-        });
+      const toParsed = (item: {
+        title?: string;
+        description?: string;
+        servings?: string;
+        ingredients?: string[];
+        instructions?: string[];
+        imageUrl?: string;
+        calories?: string;
+        protein?: string;
+        fat?: string;
+        carbs?: string;
+      }): ParsedRecipe => {
+        const parsedSteps: { instruction: string; timerMinutes?: number }[] =
+          (item.instructions ?? []).map((instr: string) => {
+            const timer = instr.match(/(\d+)\s*(мин|min|minutes)/i);
+            return { instruction: instr, timerMinutes: timer ? parseInt(timer[1]) : undefined };
+          });
+        const photo = typeof item.imageUrl === 'string' && item.imageUrl.startsWith('http')
+          ? item.imageUrl
+          : typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http')
+            ? data.imageUrl
+            : undefined;
+        return {
+          title: item.title || data.title || t('importedRecipe'),
+          description: item.description ?? data.description,
+          category: detectCategory(`${data.categoryHint ?? ''} ${item.title ?? data.title ?? ''}`),
+          servings: item.servings ?? data.servings,
+          ingredients: (item.ingredients ?? []).map(parseIngredientString),
+          steps: parsedSteps,
+          imageUrl: photo,
+          calories: item.calories ?? data.calories,
+          protein: item.protein ?? data.protein,
+          fat: item.fat ?? data.fat,
+          carbs: item.carbs ?? data.carbs,
+          sourceLang: data.sourceLang,
+          translated: data.translated,
+          note: data.note,
+        };
+      };
 
-      const parsedIngredients = (data.ingredients ?? []).map(parseIngredientString);
+      const list: ParsedRecipe[] = Array.isArray(data.recipes) && data.recipes.length
+        ? data.recipes.map(toParsed)
+        : [toParsed(data)];
 
-      setParseResult({
-        title: data.title || t('importedRecipe'),
-        description: data.description,
-        category: detectCategory(`${data.categoryHint ?? ''} ${data.title ?? ''}`),
-        servings: data.servings,
-        ingredients: parsedIngredients,
-        steps: parsedSteps,
-        imageUrl: typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http') ? data.imageUrl : undefined,
-        calories: data.calories,
-        protein: data.protein,
-        fat: data.fat,
-        carbs: data.carbs,
-        sourceLang: data.sourceLang,
-        translated: data.translated,
-        note: data.note,
-      });
-      setImageUrl(
-        typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http') ? data.imageUrl : undefined,
-      );
+      setParseResults(list);
+      setSelectedParsed(list.map(() => true));
+      const cover = list[0]?.imageUrl;
+      setImageUrl(cover);
       try {
         await recordImport(url);
       } catch (err) {
         if (!isQuotaError(err)) console.error(err);
       }
     } catch (e: unknown) {
-      setParseResult(null);
+      setParseResults([]);
+      setSelectedParsed([]);
       setImageUrl(undefined);
       const msg = e instanceof Error ? e.message : String(e);
       const timedOut = /timeout|timed out|abort|504|546|failed to send|network error/i.test(msg);
@@ -491,31 +516,105 @@ export function AddRecipeModal({
     }
   };
 
-  const useParsedRecipe = () => {
-    if (!parseResult) return;
-    setTitle(parseResult.title);
-    setDescription(parseResult.description || '');
-    setCategory(parseResult.category);
-    setServings(parseFiniteInput(parseResult.servings)?.toString() || parseResult.servings || '');
-    setCalories(parseFiniteInput(parseResult.calories)?.toString() || '');
-    setProtein(parseFiniteInput(parseResult.protein)?.toString() || '');
-    setFat(parseFiniteInput(parseResult.fat)?.toString() || '');
-    setCarbs(parseFiniteInput(parseResult.carbs)?.toString() || '');
+  const applyParsedToForm = (parsed: ParsedRecipe) => {
+    setTitle(parsed.title);
+    setDescription(parsed.description || '');
+    setCategory(parsed.category);
+    setServings(parseFiniteInput(parsed.servings)?.toString() || parsed.servings || '');
+    setCalories(parseFiniteInput(parsed.calories)?.toString() || '');
+    setProtein(parseFiniteInput(parsed.protein)?.toString() || '');
+    setFat(parseFiniteInput(parsed.fat)?.toString() || '');
+    setCarbs(parseFiniteInput(parsed.carbs)?.toString() || '');
     setIngredients(
-      parseResult.ingredients.length
-        ? parseResult.ingredients.map(i => ({ ...i, quantity: String(i.quantity) }))
+      parsed.ingredients.length
+        ? parsed.ingredients.map(i => ({ ...i, quantity: String(i.quantity) }))
         : [{ quantity: '1', unit: 'g', name: '' }],
     );
     setSteps(
-      parseResult.steps.length
-        ? parseResult.steps.map(s => ({ instruction: s.instruction, timerMinutes: s.timerMinutes ? String(s.timerMinutes) : '' }))
+      parsed.steps.length
+        ? parsed.steps.map(s => ({ instruction: s.instruction, timerMinutes: s.timerMinutes ? String(s.timerMinutes) : '' }))
         : [{ instruction: '', timerMinutes: '' }],
     );
+    if (parsed.imageUrl) setImageUrl(parsed.imageUrl);
     if (importUrl.trim()) setSourceUrl(importUrl);
     setActiveTab('manual');
-    setParseResult(null);
+    setParseResults([]);
+    setSelectedParsed([]);
     setParseError(null);
     setImportUrl('');
+  };
+
+  const useParsedRecipe = () => {
+    if (!parseResult) return;
+    applyParsedToForm(parseResult);
+  };
+
+  const buildRecipeFromParsed = (parsed: ParsedRecipe): FullRecipe => {
+    const recipeId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const servingsNum = parseFiniteInput(parsed.servings) || 1;
+    const stamp = `${Date.now()}-${recipeId.slice(0, 8)}`;
+    return {
+      recipe: {
+        id: recipeId,
+        category: parsed.category || 'other',
+        status: 'want_to_cook',
+        imageUrl: parsed.imageUrl || imageUrl,
+        sourceUrl: importUrl.trim() || undefined,
+        servings: servingsNum,
+        calories: parseFiniteInput(parsed.calories),
+        protein: parseFiniteInput(parsed.protein),
+        fat: parseFiniteInput(parsed.fat),
+        carbs: parseFiniteInput(parsed.carbs),
+        visibleToFriends: false,
+        notes: undefined,
+        tags,
+        createdAt: now,
+        updatedAt: now,
+      },
+      translations: [
+        { id: `t-${stamp}-ru`, recipeId, language: 'ru' as const, title: parsed.title, description: parsed.description || '' },
+        { id: `t-${stamp}-en`, recipeId, language: 'en' as const, title: parsed.title, description: parsed.description || '' },
+        { id: `t-${stamp}-de`, recipeId, language: 'de' as const, title: parsed.title, description: parsed.description || '' },
+      ],
+      ingredients: parsed.ingredients.filter((ing) => ing.name.trim()).map((ing, idx) => ({
+        id: `i-${stamp}-${idx}`,
+        recipeId,
+        quantity: ing.quantity || 0,
+        unit: ing.unit,
+        translations: [
+          { id: `it-${stamp}-${idx}-ru`, ingredientId: `i-${stamp}-${idx}`, language: 'ru' as const, name: ing.name },
+          { id: `it-${stamp}-${idx}-en`, ingredientId: `i-${stamp}-${idx}`, language: 'en' as const, name: ing.name },
+          { id: `it-${stamp}-${idx}-de`, ingredientId: `i-${stamp}-${idx}`, language: 'de' as const, name: ing.name },
+        ],
+      })),
+      steps: parsed.steps.filter((step) => step.instruction.trim()).map((step, idx) => ({
+        id: `s-${stamp}-${idx}`,
+        recipeId,
+        stepOrder: idx + 1,
+        timerMinutes: step.timerMinutes,
+        translations: [
+          { id: `st-${stamp}-${idx}-ru`, stepId: `s-${stamp}-${idx}`, language: 'ru' as const, instruction: step.instruction },
+          { id: `st-${stamp}-${idx}-en`, stepId: `s-${stamp}-${idx}`, language: 'en' as const, instruction: step.instruction },
+          { id: `st-${stamp}-${idx}-de`, stepId: `s-${stamp}-${idx}`, language: 'de' as const, instruction: step.instruction },
+        ],
+      })),
+    };
+  };
+
+  const saveSelectedParsed = () => {
+    const chosen = parseResults.filter((_, idx) => selectedParsed[idx]);
+    if (!chosen.length) return;
+    const room = recipeLimit == null ? chosen.length : Math.max(0, recipeLimit - recipeCount);
+    if (room <= 0) {
+      onNeedPlan?.();
+      return;
+    }
+    chosen.slice(0, room).forEach((parsed) => onSave(buildRecipeFromParsed(parsed)));
+    if (chosen.length > room) onNeedPlan?.();
+    resetForm();
+    onClose();
+  };
   };
 
   const handleSave = () => {
@@ -936,10 +1035,73 @@ export function AddRecipeModal({
               )}
 
               {/* Language notice — only when the recipe could not be translated */}
-              {parseResult?.sourceLang && parseResult.sourceLang !== language && !parseResult.translated && (
+              {parseResults[0]?.sourceLang && parseResults[0].sourceLang !== language && !parseResults[0].translated && (
                 <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-sm">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   {t('foreignPageNotice')}
+                </div>
+              )}
+
+              {parseResults.length > 1 && !isParsing && (
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <CheckCircle className="w-6 h-6 text-green-500" />
+                    <span className="font-bold text-lg text-green-700">
+                      {t('severalRecipesFound')}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {parseResults.map((parsed, idx) => (
+                      <label key={`${parsed.title}-${idx}`} className="flex gap-3 bg-white rounded-lg p-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="mt-1 w-4 h-4 accent-orange-500"
+                          checked={selectedParsed[idx] ?? true}
+                          onChange={() => {
+                            setSelectedParsed((prev) => {
+                              const next = [...prev];
+                              next[idx] = !next[idx];
+                              return next;
+                            });
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-gray-800">{parsed.title}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {parsed.ingredients.length} {t('ingredients').toLowerCase()} · {parsed.steps.length} {t('steps').toLowerCase()}
+                          </p>
+                          {parsed.description && (
+                            <p className="text-gray-600 text-sm line-clamp-2 mt-1">{parsed.description}</p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              applyParsedToForm(parsed);
+                            }}
+                            className={`mt-2 text-sm font-medium ${theme.textAccent}`}
+                          >
+                            {t('editThisRecipe')}
+                          </button>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  {parseResults[0]?.note && IMPORT_NOTE_KEYS[parseResults[0].note] && (
+                    <div className="flex items-start gap-2 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>{t(IMPORT_NOTE_KEYS[parseResults[0].note])}</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={saveSelectedParsed}
+                    disabled={!selectedParsed.some(Boolean)}
+                    className="mt-4 w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <CheckCircle className="w-5 h-5" />
+                    {t('addSelectedRecipes')}
+                  </button>
                 </div>
               )}
 

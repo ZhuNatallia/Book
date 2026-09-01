@@ -866,15 +866,34 @@ async function structureCaption(
   structured: { title?: string; description?: string; ingredients: string[]; instructions: string[] } | null;
   ingredients: string[];
   instructions: string[];
+  recipes: StructuredRecipe[];
 }> {
   const structured = cleanDesc.length > 50 ? await tryLlmStructure(cleanDesc, lang) : null;
   const regexResult = cleanDesc ? parseDescriptionText(cleanDesc) : { ingredients: [], instructions: [] };
+  const ingredients = structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients;
+  const instructions = splitLongSteps(
+    structured?.instructions?.length ? structured.instructions : regexResult.instructions,
+  );
+  const recipes: StructuredRecipe[] = structured?.recipes?.length
+    ? structured.recipes.map((recipe, idx) => ({
+        title: recipe.title,
+        description: recipe.description,
+        ingredients: recipe.ingredients.length ? recipe.ingredients : (idx === 0 ? regexResult.ingredients : []),
+        instructions: splitLongSteps(
+          recipe.instructions.length ? recipe.instructions : (idx === 0 ? regexResult.instructions : []),
+        ),
+      }))
+    : [{
+        title: structured?.title,
+        description: structured?.description,
+        ingredients,
+        instructions,
+      }];
   return {
     structured,
-    ingredients: structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients,
-    instructions: splitLongSteps(
-      structured?.instructions?.length ? structured.instructions : regexResult.instructions,
-    ),
+    ingredients,
+    instructions,
+    recipes,
   };
 }
 
@@ -1295,19 +1314,57 @@ async function callLlm(body: Record<string, unknown>, label: string): Promise<an
   }
 }
 
+type StructuredRecipe = {
+  title?: string;
+  description?: string;
+  ingredients: string[];
+  instructions: string[];
+};
+
+const MAX_RECIPES_FROM_CAPTION = 8;
+
+function recipeFromLlmNode(raw: unknown): StructuredRecipe | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const ingredients = Array.isArray(o.ingredients) ? o.ingredients.map(String).filter((s) => s.trim()) : [];
+  const instructions = Array.isArray(o.instructions) ? o.instructions.map(String).filter((s) => s.trim()) : [];
+  const title = typeof o.title === 'string' ? o.title.trim() : '';
+  const description = typeof o.description === 'string' ? o.description.trim() : '';
+  if (!title && !ingredients.length && !instructions.length) return null;
+  return {
+    title: title || undefined,
+    description: description || undefined,
+    ingredients,
+    instructions,
+  };
+}
+
+function coerceLlmRecipes(out: Record<string, unknown> | null): StructuredRecipe[] {
+  if (!out) return [];
+  const nodes = Array.isArray(out.recipes) ? out.recipes : [out];
+  const recipes: StructuredRecipe[] = [];
+  for (const node of nodes) {
+    const recipe = recipeFromLlmNode(node);
+    if (!recipe) continue;
+    recipes.push(recipe);
+    if (recipes.length >= MAX_RECIPES_FROM_CAPTION) break;
+  }
+  return recipes;
+}
+
 // Optional LLM structuring — supports Groq (free) or OpenAI.
 // Priority: GROQ_API_KEY (free) → OPENAI_API_KEY (paid). Returns null when no key is set.
 async function tryLlmStructure(
   rawText: string,
   targetLang: string,
   maxChars = 3000,
-): Promise<{ title?: string; description?: string; ingredients: string[]; instructions: string[] } | null> {
+): Promise<(StructuredRecipe & { recipes: StructuredRecipe[] }) | null> {
   if (rawText.length < 50) return null;
 
   const text = rawText.slice(0, maxChars);
   const out = await callLlm({
     // Extraction discards filler, so the result is smaller than the source
-    max_tokens: budgetMaxTokens(text.length + 800, 3000),
+    max_tokens: budgetMaxTokens(text.length + 1200, 4000),
     response_format: { type: 'json_object' },
     messages: [{
       role: 'user',
@@ -1316,13 +1373,19 @@ Extract ONLY recipe content from the text below. Ignore all social media metadat
 
 Respond in ${llmLangName(targetLang)}. Translate if the source is in a different language.
 
-Return ONLY valid JSON with these keys:
+Return ONLY valid JSON: { "recipes": [ { "title", "description", "ingredients", "instructions" } ] }
+
+Each recipes[] item:
 - title: the dish name ONLY (e.g. "Шоколадное печенье"). Never include author handles (@username), account names, platform labels ("Instagram Reel"), or engagement numbers. If no clear dish name exists, return "".
 - description: brief intro / context sentence(s) only (max 2 sentences, or empty string "")
 - ingredients: array of strings, each one ingredient with quantity + unit + name, e.g. "200г муки", "2 яйца", "щепотка соли"
 - instructions: array of strings, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
 
-If no recipe is found return { "title": "", "description": "", "ingredients": [], "instructions": [] }.
+If the text contains TWO OR MORE clearly separate dishes (carousel / "рецепт 1", "рецепт 2", "3 десерта:", numbered recipes each with their own ingredients), put each dish in its own recipes[] object.
+If it is ONE dish — including a cake plus its cream, or optional substitutions — return a single-item recipes array.
+Do not invent dishes. Do not split one recipe into an ingredients card and a steps card.
+
+If no recipe is found return { "recipes": [] }.
 Do not invent data not present in the text.
 
 Text:
@@ -1331,12 +1394,39 @@ ${text}`,
   }, 'structure');
 
   if (!out) return null;
+  const recipes = coerceLlmRecipes(out);
+  if (!recipes.length) return null;
+  const first = recipes[0];
   return {
-    title: typeof out.title === 'string' ? out.title : undefined,
-    description: typeof out.description === 'string' ? out.description : undefined,
-    ingredients: Array.isArray(out.ingredients) ? out.ingredients.map(String) : [],
-    instructions: Array.isArray(out.instructions) ? out.instructions.map(String) : [],
+    title: first.title,
+    description: first.description,
+    ingredients: first.ingredients,
+    instructions: first.instructions,
+    recipes,
   };
+}
+
+async function translateRecipeList(
+  list: StructuredRecipe[],
+  lang: string,
+  sourceLang: string | undefined,
+  fallbackTitle: string,
+): Promise<{ title: string; description: string; ingredients: string[]; instructions: string[] }[]> {
+  const out: { title: string; description: string; ingredients: string[]; instructions: string[] }[] = [];
+  for (const recipe of list) {
+    let payload = {
+      title: sanitizeTitle(recipe.title ?? '') || fallbackTitle,
+      description: recipe.description ?? '',
+      ingredients: recipe.ingredients.filter((i) => !isJunkIngredient(i)),
+      instructions: recipe.instructions,
+    };
+    payload = await translateIfNeeded(payload, sourceLang, lang);
+    out.push(cleanTexts({
+      ...payload,
+      instructions: splitLongSteps(payload.instructions),
+    }));
+  }
+  return out;
 }
 
 // Dedicated translation services are preferred over an LLM here because they are
@@ -1891,6 +1981,10 @@ serve(async (req) => {
       );
 
       const out = cleanTexts(socialOut);
+      const extraRecipes = parsed.recipes.length > 1
+        ? await translateRecipeList(parsed.recipes.slice(1), lang, undefined, out.title || 'Recipe')
+        : [];
+      const recipes = [out, ...extraRecipes].map((recipe) => ({ ...recipe, imageUrl: mlImage }));
 
       return new Response(
         JSON.stringify({
@@ -1898,6 +1992,7 @@ serve(async (req) => {
           categoryHint: '',
           imageUrl: mlImage,
           sourceLang: undefined,
+          recipes,
           note: captionTruncated ? 'social_truncated' : isPartial ? 'partial_social' : undefined,
           llmError: llmDiag,
           translateError: translateDiag,
@@ -1985,14 +2080,23 @@ serve(async (req) => {
       // Step 4: clean noise then structure (LLM if available, regex fallback)
       const cleanDesc = cleanSocialText(videoDesc);
       const llmResult = cleanDesc ? await tryLlmStructure(cleanDesc, lang) : null;
+      const llmRecipes = llmResult?.recipes?.length ? llmResult.recipes : (llmResult
+        ? [{
+            title: llmResult.title,
+            description: llmResult.description,
+            ingredients: llmResult.ingredients,
+            instructions: llmResult.instructions,
+          }]
+        : []);
       const regexResult = cleanDesc ? parseDescriptionText(cleanDesc) : { ingredients: [], instructions: [] };
 
-      const finalIngredients = llmResult?.ingredients?.length ? llmResult.ingredients : regexResult.ingredients;
+      const firstLlm = llmRecipes[0];
+      const finalIngredients = firstLlm?.ingredients?.length ? firstLlm.ingredients : regexResult.ingredients;
       const finalInstructions = splitLongSteps(
-        llmResult?.instructions?.length ? llmResult.instructions : regexResult.instructions,
+        firstLlm?.instructions?.length ? firstLlm.instructions : regexResult.instructions,
       );
-      const finalTitle = (llmResult?.title && llmResult.title.trim()) ? llmResult.title : videoTitle;
-      const finalDescription = llmResult?.description ?? cleanDesc;
+      const finalTitle = (firstLlm?.title && firstLlm.title.trim()) ? firstLlm.title : videoTitle;
+      const finalDescription = firstLlm?.description ?? cleanDesc;
 
       // Distinguish "no key configured" from "this video has no recipe in its description",
       // so an empty card is never returned without a reason the user can act on.
@@ -2016,6 +2120,10 @@ serve(async (req) => {
       ytOut = await translateIfNeeded(ytOut, sourceLang, lang);
 
       const out = cleanTexts(ytOut);
+      const extraRecipes = llmRecipes.length > 1
+        ? await translateRecipeList(llmRecipes.slice(1), lang, sourceLang, out.title || videoTitle)
+        : [];
+      const recipes = [out, ...extraRecipes].map((recipe) => ({ ...recipe, imageUrl: videoThumb }));
 
       return new Response(
         JSON.stringify({
@@ -2023,6 +2131,7 @@ serve(async (req) => {
           categoryHint: '',
           imageUrl: videoThumb,
           sourceLang,
+          recipes,
           note: ytNote,
           llmError: llmDiag,
           translateError: translateDiag,
