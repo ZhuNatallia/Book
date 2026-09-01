@@ -615,7 +615,6 @@ export function AddRecipeModal({
     resetForm();
     onClose();
   };
-  };
 
   const handleSave = () => {
     if (!title.trim() || !category) return;
