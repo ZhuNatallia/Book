@@ -558,7 +558,7 @@ export function AddRecipeModal({
     setIsCompressing(true);
     let dataUrl: string;
     try {
-      dataUrl = await compressImageFile(file, 1400, 0.7);
+      dataUrl = await compressImageFile(file, 1000, 0.55);
     } catch {
       setIsCompressing(false);
       setParseError(t('importScreenshotFailed'));

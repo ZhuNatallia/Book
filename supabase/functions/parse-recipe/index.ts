@@ -1357,11 +1357,11 @@ function parseLlmJson(content: string): any | null {
 // Shared request path for both LLM helpers: resolves the provider, posts the body and
 // records why a call failed instead of collapsing every error into null.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function callLlm(
+async function completeLlm(
   body: Record<string, unknown>,
   label: string,
   modelOverride?: string,
-): Promise<any | null> {
+): Promise<string | null> {
   const llm = resolveLlm();
   if (!llm) return null;
 
@@ -1440,19 +1440,29 @@ async function callLlm(
       console.error(`[llm] ${label} empty content`, JSON.stringify(json).slice(0, 300));
       return null;
     }
-
-    const parsed = parseLlmJson(content);
-    if (!parsed) {
-      llmDiag = `${label}_bad_json`;
-      console.error(`[llm] ${label} unparseable JSON`, content.slice(0, 300));
-      return null;
-    }
-    return parsed;
+    return content;
   } catch (err) {
     llmDiag = `${label}_exception: ${String(err).slice(0, 200)}`;
     console.error(`[llm] ${label} threw`, err);
     return null;
   }
+}
+
+async function callLlm(
+  body: Record<string, unknown>,
+  label: string,
+  modelOverride?: string,
+): Promise<any | null> {
+  const content = await completeLlm(body, label, modelOverride);
+  if (!content) return null;
+
+  const parsed = parseLlmJson(content);
+  if (!parsed) {
+    llmDiag = `${label}_bad_json`;
+    console.error(`[llm] ${label} unparseable JSON`, content.slice(0, 300));
+    return null;
+  }
+  return parsed;
 }
 
 type StructuredRecipe = {
@@ -1555,48 +1565,55 @@ function screenshotReadError(lang: string): string {
     : 'No recipe text is readable on this screenshot. Crop closer to the comment or attach another frame.';
 }
 
-// Screenshots of comments, stories and cookbook pages. gpt-oss cannot see images.
-async function tryVisionStructure(
-  dataUrl: string,
-  targetLang: string,
-): Promise<StructuredRecipe[] | null> {
+function screenshotVisionError(lang: string): string {
+  const ru = lang === 'ru';
+  if (!llmDiag) return screenshotReadError(lang);
+  if (/429|throttl/i.test(llmDiag)) {
+    return ru
+      ? 'Сервис распознавания сейчас перегружен. Подождите минуту и повторите.'
+      : 'The recognition service is busy. Wait a minute and try again.';
+  }
+  if (/413|TPM|too large|payload/i.test(llmDiag)) {
+    return ru
+      ? 'Скрин не прошёл по размеру. Обрежьте кадр ближе к тексту рецепта.'
+      : 'This screenshot is too heavy. Crop closer to the recipe text.';
+  }
+  if (/no_api_key/.test(llmDiag)) {
+    return ru
+      ? 'Распознавание скринов не настроено.'
+      : 'Screenshot recognition is not configured.';
+  }
+  return ru
+    ? 'Не удалось прочитать скрин. Подождите минуту и попробуйте ещё раз.'
+    : 'Could not read the screenshot. Wait a minute and try again.';
+}
+
+// First pass: dump visible text. JSON extraction in the same call was too heavy for
+// Groq vision and collapsed every API failure into "no text on the screenshot".
+async function tryVisionTranscript(dataUrl: string): Promise<string | null> {
   const llm = resolveLlm();
   if (!llm) return null;
 
-  const langName = llmLangName(targetLang);
-  const examples = llmFieldExamples(targetLang);
-  const out = await callLlm({
-    max_tokens: 4000,
-    response_format: { type: 'json_object' },
+  const content = await completeLlm({
+    max_tokens: 1800,
     messages: [{
       role: 'user',
       content: [
         {
           type: 'text',
-          text: `You are a recipe extraction assistant. The image is a screenshot of a recipe (Instagram/TikTok comment, story, notes, cookbook page).
-Read ALL visible recipe text. Ignore app chrome: Like, Reply, Share, Follow, view counts, timestamps, profile bios, and engagement buttons.
-
-Respond in ${langName}. Translate EVERY field into ${langName} when the source is in another language: title, description, every ingredient line, and every instruction step.
-
-Return ONLY valid JSON: { "recipes": [ { "title", "description", "ingredients", "instructions" } ] }
-
-Each recipes[] item:
-- title: the dish name ONLY (e.g. "${examples.title}"). If no clear dish name is on the image, return "".
-- description: brief intro in ${langName} (max 2 sentences, or "")
-- ingredients: array of strings in ${langName}, each one ingredient with quantity + unit + name, e.g. ${examples.ingredients}
-- instructions: array of strings in ${langName}, one short step per item.
-
-If the image contains TWO OR MORE clearly separate dishes, put each in its own recipes[] object.
-If no recipe text is readable return { "recipes": [] }.
-Do not invent quantities or steps that are not on the image.`,
+          text: `Transcribe ALL readable text from this screenshot, including Cyrillic.
+Keep the original language and line breaks. Include ingredient lists and cooking steps in full.
+Skip only UI chrome: Like, Reply, Share, Follow, timestamps, "Leave a comment", reaction bars.
+Return plain text only. No JSON. No commentary.`,
         },
         { type: 'image_url', image_url: { url: dataUrl } },
       ],
     }],
-  }, 'vision', resolveVisionModel(llm));
+  }, 'vision-ocr', resolveVisionModel(llm));
 
-  if (!out) return null;
-  return coerceLlmRecipes(out);
+  if (!content) return null;
+  const text = content.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
+  return text.length >= 40 ? text : null;
 }
 
 async function translateRecipeList(
@@ -2042,8 +2059,29 @@ serve(async (req) => {
         );
       }
 
-      const visionRecipes = await tryVisionStructure(imageIn, lang);
-      if (!visionRecipes?.length) {
+      const transcript = await tryVisionTranscript(imageIn);
+      if (!transcript) {
+        return new Response(
+          JSON.stringify({ error: screenshotVisionError(lang), llmError: llmDiag }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const parsed = await structureCaption(cleanSocialText(splitCaptionLines(transcript)), lang);
+      const visionRecipes = parsed.recipes.length
+        ? parsed.recipes
+        : [{
+            title: parsed.structured?.title,
+            description: parsed.structured?.description,
+            ingredients: parsed.ingredients,
+            instructions: parsed.instructions,
+          }];
+      const usable = visionRecipes.filter((recipe) =>
+        (recipe.title && recipe.title.trim())
+        || recipe.ingredients.length
+        || recipe.instructions.length
+      );
+      if (!usable.length) {
         return new Response(
           JSON.stringify({ error: screenshotReadError(lang), llmError: llmDiag }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -2051,10 +2089,10 @@ serve(async (req) => {
       }
 
       const translated = await translateRecipeList(
-        visionRecipes,
+        usable,
         lang,
         undefined,
-        visionRecipes[0].title || 'Recipe',
+        usable[0].title || 'Recipe',
       );
       const first = translated[0];
       const isPartial = !first.ingredients.length && !first.instructions.length;
