@@ -1595,10 +1595,9 @@ ${text}`,
     }],
   }, 'structure');
 
-If the text has sections for batter, cream, frosting, glaze, filling, garnish or "additionally", keep ALL of those lines in the SAME recipe.ingredients array. Prefix cream/frosting lines so they stay readable, e.g. "для крема: сметана — 200 г". Never drop a cream, frosting, sauce or garnish list that belongs to the same dish. "Ingredients for the cream" is NOT a second recipe.
-
-If the text contains TWO OR MORE clearly separate dishes (carousel / "рецепт 1", "рецепт 2", "3 десерта:", numbered recipes each with their own ingredients), put each dish in its own recipes[] object.
-If it is ONE dish — including a cake plus its cream, or optional substitutions — return a single-item recipes array.
+  if (!out) return null;
+  const recipes = coerceLlmRecipes(out);
+  if (!recipes.length) return null;
   const first = recipes[0];
   return {
     title: first.title,
