@@ -172,6 +172,7 @@ const IMPORT_NOTE_KEYS: Record<string, string> = {
   youtube_unavailable: 'noteYoutubeUnavailable',
   partial_social: 'notePartialSocial',
   social_truncated: 'noteSocialTruncated',
+  partial_screenshot: 'noteScreenshotEmpty',
 };
 
 export function AddRecipeModal({
@@ -200,6 +201,7 @@ export function AddRecipeModal({
   const [importingStep, setImportingStep] = useState<number>(0);
   const [duplicateRecipe, setDuplicateRecipe] = useState<FullRecipe | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -398,6 +400,76 @@ export function AddRecipeModal({
     }
   };
 
+  const applyParseData = (
+    data: {
+      title?: string;
+      description?: string;
+      servings?: string;
+      ingredients?: string[];
+      instructions?: string[];
+      imageUrl?: string;
+      calories?: string;
+      protein?: string;
+      fat?: string;
+      carbs?: string;
+      categoryHint?: string;
+      sourceLang?: string;
+      translated?: boolean;
+      note?: string;
+      recipes?: Array<{
+        title?: string;
+        description?: string;
+        servings?: string;
+        ingredients?: string[];
+        instructions?: string[];
+        imageUrl?: string;
+        calories?: string;
+        protein?: string;
+        fat?: string;
+        carbs?: string;
+      }>;
+    },
+    extras?: { keepCover?: string; keepTitle?: string },
+  ) => {
+    const toParsed = (item: NonNullable<typeof data.recipes>[number]): ParsedRecipe => {
+      const parsedSteps: { instruction: string; timerMinutes?: number }[] =
+        (item.instructions ?? []).map((instr: string) => {
+          const timer = instr.match(/(\d+)\s*(мин|min|minutes)/i);
+          return { instruction: instr, timerMinutes: timer ? parseInt(timer[1]) : undefined };
+        });
+      const photo = typeof item.imageUrl === 'string' && item.imageUrl.startsWith('http')
+        ? item.imageUrl
+        : typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http')
+          ? data.imageUrl
+          : extras?.keepCover;
+      const title = item.title || data.title || extras?.keepTitle || t('importedRecipe');
+      return {
+        title,
+        description: item.description ?? data.description,
+        category: detectCategory(`${data.categoryHint ?? ''} ${title}`),
+        servings: item.servings ?? data.servings,
+        ingredients: (item.ingredients ?? []).map(parseIngredientString),
+        steps: parsedSteps,
+        imageUrl: photo,
+        calories: item.calories ?? data.calories,
+        protein: item.protein ?? data.protein,
+        fat: item.fat ?? data.fat,
+        carbs: item.carbs ?? data.carbs,
+        sourceLang: data.sourceLang,
+        translated: data.translated,
+        note: data.note,
+      };
+    };
+
+    const list: ParsedRecipe[] = Array.isArray(data.recipes) && data.recipes.length
+      ? data.recipes.map(toParsed)
+      : [toParsed(data)];
+
+    setParseResults(list);
+    setSelectedParsed(list.map(() => true));
+    setImageUrl(list[0]?.imageUrl || extras?.keepCover);
+  };
+
   const handleImportUrl = async (ignoreDuplicate = false) => {
     if (!importUrl.trim()) return;
     if (!canImport) {
@@ -448,55 +520,7 @@ export function AddRecipeModal({
       });
       if (error || data?.error) throw new Error(error?.message ?? data?.error);
       setImportingStep(3);
-
-      const toParsed = (item: {
-        title?: string;
-        description?: string;
-        servings?: string;
-        ingredients?: string[];
-        instructions?: string[];
-        imageUrl?: string;
-        calories?: string;
-        protein?: string;
-        fat?: string;
-        carbs?: string;
-      }): ParsedRecipe => {
-        const parsedSteps: { instruction: string; timerMinutes?: number }[] =
-          (item.instructions ?? []).map((instr: string) => {
-            const timer = instr.match(/(\d+)\s*(мин|min|minutes)/i);
-            return { instruction: instr, timerMinutes: timer ? parseInt(timer[1]) : undefined };
-          });
-        const photo = typeof item.imageUrl === 'string' && item.imageUrl.startsWith('http')
-          ? item.imageUrl
-          : typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http')
-            ? data.imageUrl
-            : undefined;
-        return {
-          title: item.title || data.title || t('importedRecipe'),
-          description: item.description ?? data.description,
-          category: detectCategory(`${data.categoryHint ?? ''} ${item.title ?? data.title ?? ''}`),
-          servings: item.servings ?? data.servings,
-          ingredients: (item.ingredients ?? []).map(parseIngredientString),
-          steps: parsedSteps,
-          imageUrl: photo,
-          calories: item.calories ?? data.calories,
-          protein: item.protein ?? data.protein,
-          fat: item.fat ?? data.fat,
-          carbs: item.carbs ?? data.carbs,
-          sourceLang: data.sourceLang,
-          translated: data.translated,
-          note: data.note,
-        };
-      };
-
-      const list: ParsedRecipe[] = Array.isArray(data.recipes) && data.recipes.length
-        ? data.recipes.map(toParsed)
-        : [toParsed(data)];
-
-      setParseResults(list);
-      setSelectedParsed(list.map(() => true));
-      const cover = list[0]?.imageUrl;
-      setImageUrl(cover);
+      applyParseData(data);
       try {
         await recordImport(url);
       } catch (err) {
@@ -513,6 +537,61 @@ export function AddRecipeModal({
       window.clearInterval(progress);
       setIsParsing(false);
       setImportingStep(0);
+    }
+  };
+
+  const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (screenshotInputRef.current) screenshotInputRef.current.value = '';
+    if (!file || !file.type.startsWith('image/')) return;
+    if (!canImport) {
+      onNeedPlan?.();
+      return;
+    }
+    if (!navigator.onLine) {
+      setParseError(t('offlineHint'));
+      return;
+    }
+
+    setDuplicateRecipe(null);
+    setParseError(null);
+    setIsCompressing(true);
+    let dataUrl: string;
+    try {
+      dataUrl = await compressImageFile(file, 1400, 0.7);
+    } catch {
+      setIsCompressing(false);
+      setParseError(t('importScreenshotFailed'));
+      return;
+    }
+    setIsCompressing(false);
+
+    const keepCover = (imageUrl?.startsWith('http') ? imageUrl : undefined)
+      || (parseResults[0]?.imageUrl?.startsWith('http') ? parseResults[0].imageUrl : undefined);
+    const keepTitle = parseResults[0]?.title;
+
+    setLoadingPlatform('screenshot');
+    setIsParsing(true);
+    setImportingStep(3);
+    try {
+      const { data, error } = await supabase.functions.invoke('parse-recipe', {
+        body: { image: dataUrl, lang: language },
+      });
+      if (error || data?.error) throw new Error(error?.message ?? data?.error);
+      applyParseData(data, { keepCover, keepTitle });
+      try {
+        await recordImport();
+      } catch (err) {
+        if (!isQuotaError(err)) console.error(err);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const timedOut = /timeout|timed out|abort|504|546|failed to send|network error/i.test(msg);
+      setParseError(timedOut ? t('importTimedOut') : msg);
+    } finally {
+      setIsParsing(false);
+      setImportingStep(0);
+      setLoadingPlatform('');
     }
   };
 
@@ -990,9 +1069,47 @@ export function AddRecipeModal({
                 )}
               </div>
 
+              {/* Block 2: Screenshot of a comment / page */}
+              <div className={`${theme.bgSecondary} p-4 rounded-xl border ${theme.borderAccent}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Camera className={`w-5 h-5 ${theme.textAccent}`} />
+                  <h3 className={`font-semibold ${theme.textPrimary}`}>
+                    {t('importByScreenshot')}
+                  </h3>
+                </div>
+                <p className={`text-sm mb-3 ${theme.textSecondary}`}>
+                  {t('importScreenshotHint')}
+                </p>
+                <input
+                  ref={screenshotInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void handleScreenshotUpload(e)}
+                  disabled={isParsing || isCompressing}
+                />
+                <button
+                  type="button"
+                  onClick={() => screenshotInputRef.current?.click()}
+                  disabled={isParsing || isCompressing || !online || !canImport}
+                  className={`w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
+                >
+                  {isCompressing || (isParsing && loadingPlatform === 'screenshot')
+                    ? <Loader2 className="w-5 h-5 animate-spin" />
+                    : <Camera className="w-5 h-5" />}
+                  {isCompressing ? t('compressing') : t('importScreenshotAction')}
+                </button>
+              </div>
+
               {/* Loading Animation */}
               {isParsing && (
                 <div className="space-y-2">
+                  {loadingPlatform === 'screenshot' ? (
+                    <p className={`text-sm text-center ${theme.textSecondary}`}>
+                      {t('importingScreenshot')}
+                    </p>
+                  ) : (
+                    <>
                   {loadingPlatform && (
                     <p className={`text-sm text-center ${theme.textSecondary}`}>
                       {`${t('importingFrom')} ${loadingPlatform}…`}
@@ -1011,6 +1128,8 @@ export function AddRecipeModal({
                       </div>
                     );
                   })}
+                    </>
+                  )}
                   <p className={`text-xs text-center ${theme.textSecondary}`}>
                     {t('importTakesTime')}
                   </p>

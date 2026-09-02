@@ -584,6 +584,8 @@ function cleanSocialText(text: string): string {
       if (looksLikeFacebookChrome(l) || isLoginWallLine(l)) return false;
       // Call-to-action lines: "Обязательно подпишись на ...", "Follow us for more recipes"
       if (/(подпишись|подпишитесь|подписывайся|подписывайтесь|ставь\s+лайк|ставьте\s+лайк|subscribe|follow\s+(me|us)|link\s+in\s+bio|ссылка\s+в\s+(шапке|био))/i.test(l)) return false;
+      // Instagram / Facebook comment chrome dumped into the caption by the reader
+      if (/^(Reply|Ответить|Like|Нравится|View replies|View more comments)$/i.test(l)) return false;
       return true;
     })
     .join('\n')
@@ -620,8 +622,24 @@ function stripLeadingOwner(s: string): string {
   return rest.length > owner.length ? rest : s;
 }
 
+// Instagram OG wraps the caption as: `6,522 likes, 66 comments - user on August 23, 2026: "…"`.
+// Without unwrapping, likes/date chrome and the quoted dish name stay glued together.
+function unwrapSocialQuote(raw: string): string {
+  const s = raw.trim();
+  if (!s) return s;
+  const head = s.slice(0, 100);
+  if (!/\b(likes?|comments?|views?|лайк|коммент|просмотр)/i.test(head)) return s;
+  const quoted = s.match(/:\s*[«"'“”]([\s\S]+?)[»"'“”]\s*\.?\s*$/);
+  if (quoted?.[1]?.trim()) return quoted[1].trim();
+  const afterDate = s.match(/\bon\s+\p{L}+\s+\d{1,2},?\s+\d{4}:\s*([\s\S]+)$/iu);
+  if (afterDate?.[1]?.trim()) {
+    return afterDate[1].replace(/^[«"'“”]|[»"'“”]\.?$/g, '').trim();
+  }
+  return s;
+}
+
 function stripMetaChrome(raw: string): string {
-  let s = raw.trim();
+  let s = unwrapSocialQuote(raw.trim());
   while (LEADING_METRIC_RE.test(s)) s = s.replace(LEADING_METRIC_RE, '');
   s = s
     .replace(/^.+?\s+on\s+(instagram|facebook|tiktok)\s*:\s*[«"'`]?/i, '')
@@ -856,7 +874,8 @@ function captionLooksThin(s: string): boolean {
     || s.length < 200
     || !/\d/.test(s)
     || isLoginWallText(s)
-    || looksLikeFacebookChrome(s);
+    || looksLikeFacebookChrome(s)
+    || looksLikeCommentThread(s);
 }
 
 async function structureCaption(
@@ -1049,14 +1068,102 @@ function extractIntro(text: string, maxSentences = 2): string {
 }
 
 // Profession/role words that appear in account bios but never in a dish name
-const BIO_WORDS = /(врач|нутрициолог|диетолог|коуч|тренер|психолог|блогер|блоггер|эксперт|автор|шеф|повар|доктор|md|phd|doctor|nutritionist|dietitian|coach|chef|blogger|author|founder)/i;
+const BIO_WORDS = /(врач|нутрициолог|диетолог|коуч|тренер|психолог|блогер|блоггер|эксперт|автор|шеф|повар|доктор|md|phd|doctor|nutritionist|dietitian|coach|chef|blogger|author|founder|похудени|стройност|фитнес|weight\s*loss|fitness)/i;
+
+// Profile weight line ("8 кг", "−68 кг") that Instagram puts in og:title instead of the dish.
+const WEIGHT_TITLE_RE = /^[\u2212\u2013\u2014+\-]?\s*\d+[.,]?\d*\s*(кг|kg|lb|lbs|г|g)\s*$/i;
+const BIO_WEIGHT_RE = /[\u2212\u2013\u2014+\-]?\s*\d+[.,]?\d*\s*(кг|kg)\b/i;
 
 // Detect when a sanitized title is still just an account bio rather than a recipe name.
 function looksLikeBio(t: string): boolean {
-  const sep = (t.match(/[|•·]/g) ?? []).length;
+  const s = t.trim();
+  if (!s) return false;
+  if (WEIGHT_TITLE_RE.test(s)) return true;
+  const sep = (s.match(/[|•·]/g) ?? []).length;
   if (sep >= 2) return true;                    // "Name | role • role" is a bio, not a dish
-  if (sep >= 1 && BIO_WORDS.test(t)) return true; // separator + profession word
-  return sep >= 1 && !/\d/.test(t) && t.split(/\s+/).length < 12;
+  if (sep >= 1 && (BIO_WORDS.test(s) || BIO_WEIGHT_RE.test(s))) return true;
+  return sep >= 1 && !/\d/.test(s) && s.split(/\s+/).length < 12;
+}
+
+function looksLikeCommentThread(s: string): boolean {
+  const replies = (s.match(/\b(Reply|Ответить|View replies|View more comments)\b/gi) ?? []).length;
+  return replies >= 2 || READER_TAIL_RE.test(s);
+}
+
+function looksLikeCommentBlurb(s: string): boolean {
+  return /\b(Reply|Ответить)\b/i.test(s)
+    || ((s.match(/\b(Like|Нравится)\b/gi) ?? []).length >= 2);
+}
+
+// Caption / comment that can actually become a recipe card — not a hook, bio or reply thread.
+function looksLikeRecipeText(s: string): boolean {
+  const text = s.trim();
+  if (text.length < 80) return false;
+  const parsed = parseDescriptionText(splitCaptionLines(text));
+  if (parsed.ingredients.length >= 3) return true;
+  if (parsed.ingredients.length >= 2 && parsed.instructions.length >= 2) return true;
+  const qtyLines = text.split('\n').filter((l) => MEASURE.test(l)).length;
+  if (qtyLines >= 3) return true;
+  return MEASURE.test(text)
+    && /(ингредиент|состав|приготовл|ingredient|method|directions|zutaten|шаг\s*\d)/i.test(text);
+}
+
+// Instagram often pins the recipe under the reel. The reader dumps the whole thread;
+// keep the longest chunk that still looks like a recipe.
+function extractPinnedRecipeComment(raw: string): string {
+  const chunks = raw.split(
+    /\n\s*(?:Reply|Ответить|Like|Нравится|View (?:all|more) comments|View replies|Смотреть\s+\S*\s*коммент\S*)\s*\n/gi,
+  );
+  let best = '';
+  for (const chunk of chunks) {
+    const t = chunk.trim();
+    if (t.length < 80 || !looksLikeRecipeText(t)) continue;
+    if (t.length > best.length) best = t;
+  }
+  return best;
+}
+
+function unescapeEmbeddedText(raw: string): string {
+  try {
+    return JSON.parse(`"${raw}"`);
+  } catch {
+    return raw
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, ' ')
+      .replace(/\\"/g, '"')
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  }
+}
+
+// Public Instagram HTML sometimes still embeds comment bodies in JSON. The first long
+// recipe-shaped "text" is usually the author's pinned comment.
+function extractInstagramEmbeddedRecipe(html: string): string {
+  const texts: string[] = [];
+  const re = /"text"\s*:\s*"((?:\\.|[^"\\]){60,})"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const t = unescapeEmbeddedText(m[1]).trim();
+    if (t.length >= 60) texts.push(t);
+    if (texts.length >= 40) break;
+  }
+  let best = '';
+  for (const t of texts) {
+    if (looksLikeRecipeText(t) && t.length > best.length) best = t;
+  }
+  return best;
+}
+
+// A longer scrape is not better when it is the profile header plus other people's replies.
+function betterSocialText(current: string, candidate: string): string {
+  if (!candidate || isLoginWallText(candidate) || looksLikeFacebookChrome(candidate)) return current;
+  const fromComments = extractPinnedRecipeComment(candidate);
+  const next = fromComments || candidate;
+  const curRecipe = looksLikeRecipeText(current);
+  const newRecipe = looksLikeRecipeText(next);
+  if (newRecipe && !curRecipe) return next;
+  if (newRecipe && curRecipe && next.length > current.length) return next;
+  if (!current) return looksLikeCommentThread(next) ? '' : next;
+  return current;
 }
 
 // Strip junk from any title: @handles, platform labels, engagement suffixes, extra whitespace.
@@ -1141,9 +1248,31 @@ function llmLangName(lang: string): string {
   return LLM_LANG_NAMES[lang] ?? 'English';
 }
 
+// Field examples in the app language so the model does not copy the Russian samples
+// and leave ingredients / steps untranslated.
+const LLM_FIELD_EXAMPLES: Record<string, { title: string; ingredients: string }> = {
+  ru: { title: 'Шоколадное печенье', ingredients: '"200г муки", "2 яйца", "щепотка соли"' },
+  en: { title: 'Chocolate cookies', ingredients: '"200g flour", "2 eggs", "a pinch of salt"' },
+  de: { title: 'Schokoladenkekse', ingredients: '"200 g Mehl", "2 Eier", "eine Prise Salz"' },
+  uk: { title: 'Шоколадне печиво', ingredients: '"200 г борошна", "2 яйця", "дрібка солі"' },
+  pl: { title: 'Ciasteczka czekoladowe', ingredients: '"200 g mąki", "2 jajka", "szczypta soli"' },
+  it: { title: 'Biscotti al cioccolato', ingredients: '"200 g di farina", "2 uova", "un pizzico di sale"' },
+  es: { title: 'Galletas de chocolate', ingredients: '"200 g de harina", "2 huevos", "una pizca de sal"' },
+  fr: { title: 'Cookies au chocolat', ingredients: '"200 g de farine", "2 œufs", "une pincée de sel"' },
+  kk: { title: 'Шоколадты печенье', ingredients: '"200 г ұн", "2 жұмыртқа", "бір шымшым тұз"' },
+};
+
+function llmFieldExamples(lang: string) {
+  return LLM_FIELD_EXAMPLES[lang] ?? LLM_FIELD_EXAMPLES.en;
+}
+
 // llama-3.1-8b-instant is deprecated by Groq with a 2026-08-16 shutdown.
 // Overridable via GROQ_MODEL so the next migration needs no code change.
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-20b';
+
+// gpt-oss cannot see images. Screenshots go to a multimodal Groq/OpenAI model.
+const DEFAULT_GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const SCREENSHOT_MAX_CHARS = 2_000_000;
 
 // Groq's free tier caps tokens-per-minute at 8000 for gpt-oss-20b, and a reserved
 // max_tokens counts toward that budget — an oversized reservation is rejected with
@@ -1203,6 +1332,13 @@ function resolveLlm(): { key: string; apiUrl: string; model: string } | null {
   return null;
 }
 
+function resolveVisionModel(llm: { apiUrl: string; model: string }): string {
+  if (llm.apiUrl.includes('groq.com')) {
+    return Deno.env.get('GROQ_VISION_MODEL') ?? DEFAULT_GROQ_VISION_MODEL;
+  }
+  return Deno.env.get('OPENAI_VISION_MODEL') ?? llm.model;
+}
+
 // gpt-oss models occasionally wrap JSON in markdown fences despite response_format,
 // so fall back to extracting the outermost brace pair.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1221,14 +1357,19 @@ function parseLlmJson(content: string): any | null {
 // Shared request path for both LLM helpers: resolves the provider, posts the body and
 // records why a call failed instead of collapsing every error into null.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function callLlm(body: Record<string, unknown>, label: string): Promise<any | null> {
+async function callLlm(
+  body: Record<string, unknown>,
+  label: string,
+  modelOverride?: string,
+): Promise<any | null> {
   const llm = resolveLlm();
   if (!llm) return null;
 
+  const model = modelOverride ?? llm.model;
   // Only the gpt-oss family accepts reasoning_effort (low/medium/high); other Groq models
   // reject the field outright, so it is added conditionally. 'low' minimises the tokens
   // burned on reasoning before the model starts writing JSON.
-  const extras = llm.model.startsWith('openai/gpt-oss')
+  const extras = model.startsWith('openai/gpt-oss')
     ? { reasoning_effort: 'low' }
     : {};
 
@@ -1236,7 +1377,7 @@ async function callLlm(body: Record<string, unknown>, label: string): Promise<an
     fetch(llm.apiUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${llm.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: llm.model, ...extras, ...payload }),
+      body: JSON.stringify({ model, ...extras, ...payload }),
     });
 
   try {
@@ -1288,7 +1429,7 @@ async function callLlm(body: Record<string, unknown>, label: string): Promise<an
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
       llmDiag = `${label}_http_${res.status}: ${detail}`;
-      console.error(`[llm] ${label} failed`, res.status, llm.model, detail);
+      console.error(`[llm] ${label} failed`, res.status, model, detail);
       return null;
     }
 
@@ -1362,6 +1503,8 @@ async function tryLlmStructure(
   if (rawText.length < 50) return null;
 
   const text = rawText.slice(0, maxChars);
+  const langName = llmLangName(targetLang);
+  const examples = llmFieldExamples(targetLang);
   const out = await callLlm({
     // Extraction discards filler, so the result is smaller than the source
     max_tokens: budgetMaxTokens(text.length + 1200, 4000),
@@ -1371,15 +1514,15 @@ async function tryLlmStructure(
       content: `You are a recipe extraction assistant.
 Extract ONLY recipe content from the text below. Ignore all social media metadata (likes, views, comments, shares, follower counts, platform names like "Instagram Reel", "TikTok video").
 
-Respond in ${llmLangName(targetLang)}. Translate if the source is in a different language.
+Respond in ${langName}. Translate EVERY field into ${langName} when the source is in another language: title, description, every ingredient line, and every instruction step. Never leave ingredients or steps in the source language.
 
 Return ONLY valid JSON: { "recipes": [ { "title", "description", "ingredients", "instructions" } ] }
 
 Each recipes[] item:
-- title: the dish name ONLY (e.g. "Шоколадное печенье"). Never include author handles (@username), account names, platform labels ("Instagram Reel"), or engagement numbers. If no clear dish name exists, return "".
-- description: brief intro / context sentence(s) only (max 2 sentences, or empty string "")
-- ingredients: array of strings, each one ingredient with quantity + unit + name, e.g. "200г муки", "2 яйца", "щепотка соли"
-- instructions: array of strings, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
+- title: the dish name ONLY (e.g. "${examples.title}"). Never include author handles (@username), account names, platform labels ("Instagram Reel"), or engagement numbers. If no clear dish name exists, return "".
+- description: brief intro / context sentence(s) only, written in ${langName} (max 2 sentences, or empty string "")
+- ingredients: array of strings in ${langName}, each one ingredient with quantity + unit + name, e.g. ${examples.ingredients}
+- instructions: array of strings in ${langName}, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
 
 If the text contains TWO OR MORE clearly separate dishes (carousel / "рецепт 1", "рецепт 2", "3 десерта:", numbered recipes each with their own ingredients), put each dish in its own recipes[] object.
 If it is ONE dish — including a cake plus its cream, or optional substitutions — return a single-item recipes array.
@@ -1404,6 +1547,56 @@ ${text}`,
     instructions: first.instructions,
     recipes,
   };
+}
+
+function screenshotReadError(lang: string): string {
+  return lang === 'ru'
+    ? 'На скрине не видно текста рецепта. Снимите комментарий крупнее или прикрепите другой кадр.'
+    : 'No recipe text is readable on this screenshot. Crop closer to the comment or attach another frame.';
+}
+
+// Screenshots of comments, stories and cookbook pages. gpt-oss cannot see images.
+async function tryVisionStructure(
+  dataUrl: string,
+  targetLang: string,
+): Promise<StructuredRecipe[] | null> {
+  const llm = resolveLlm();
+  if (!llm) return null;
+
+  const langName = llmLangName(targetLang);
+  const examples = llmFieldExamples(targetLang);
+  const out = await callLlm({
+    max_tokens: 4000,
+    response_format: { type: 'json_object' },
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `You are a recipe extraction assistant. The image is a screenshot of a recipe (Instagram/TikTok comment, story, notes, cookbook page).
+Read ALL visible recipe text. Ignore app chrome: Like, Reply, Share, Follow, view counts, timestamps, profile bios, and engagement buttons.
+
+Respond in ${langName}. Translate EVERY field into ${langName} when the source is in another language: title, description, every ingredient line, and every instruction step.
+
+Return ONLY valid JSON: { "recipes": [ { "title", "description", "ingredients", "instructions" } ] }
+
+Each recipes[] item:
+- title: the dish name ONLY (e.g. "${examples.title}"). If no clear dish name is on the image, return "".
+- description: brief intro in ${langName} (max 2 sentences, or "")
+- ingredients: array of strings in ${langName}, each one ingredient with quantity + unit + name, e.g. ${examples.ingredients}
+- instructions: array of strings in ${langName}, one short step per item.
+
+If the image contains TWO OR MORE clearly separate dishes, put each in its own recipes[] object.
+If no recipe text is readable return { "recipes": [] }.
+Do not invent quantities or steps that are not on the image.`,
+        },
+        { type: 'image_url', image_url: { url: dataUrl } },
+      ],
+    }],
+  }, 'vision', resolveVisionModel(llm));
+
+  if (!out) return null;
+  return coerceLlmRecipes(out);
 }
 
 async function translateRecipeList(
@@ -1674,16 +1867,51 @@ async function translateTexts(
   return missing < indexed.length ? result : null;
 }
 
+type RecipePayload = {
+  title: string;
+  description: string;
+  ingredients: string[];
+  instructions: string[];
+};
+
+// Prefer leftover source-language lists so a translated title/blurb does not fill
+// the 300-char detector and hide Russian (or other) ingredients and steps.
+function leftoverSourceSample(payload: RecipePayload, targetLang: string): string {
+  const lists = [...payload.ingredients, ...payload.instructions].join(' ');
+  const head = [payload.title, payload.description].join(' ');
+  if (needsTranslation(lists, targetLang) || scriptsDisagree(lists, targetLang)) {
+    return [lists, head].join(' ');
+  }
+  if (needsTranslation(head, targetLang) || scriptsDisagree(head, targetLang)) {
+    return [head, lists].join(' ');
+  }
+  return [head, lists].join(' ');
+}
+
+function payloadLooksForeign(payload: RecipePayload, targetLang: string): boolean {
+  const sample = leftoverSourceSample(payload, targetLang);
+  return needsTranslation(sample, targetLang) || scriptsDisagree(sample, targetLang);
+}
+
+function recipeFieldsChanged(a: RecipePayload, b: RecipePayload): boolean {
+  return a.title !== b.title
+    || a.description !== b.description
+    || a.ingredients.length !== b.ingredients.length
+    || a.instructions.length !== b.instructions.length
+    || a.ingredients.some((line, i) => line !== b.ingredients[i])
+    || a.instructions.some((line, i) => line !== b.instructions[i]);
+}
+
 async function translateIfNeeded(
-  payload: { title: string; description: string; ingredients: string[]; instructions: string[] },
+  payload: RecipePayload,
   metaLang: string | undefined,
   targetLang: string,
-): Promise<typeof payload> {
-  const sample = [payload.title, payload.description, ...payload.ingredients.slice(0, 5)].join(' ');
+): Promise<RecipePayload> {
+  const sample = leftoverSourceSample(payload, targetLang);
   let from = await translateFrom(sample, metaLang, targetLang);
-  // Body can already be in the app language (LLM structured it) while the title is still
-  // the original. translateFrom then sees "already German" and skips the Russian title.
-  if (!from && (needsTranslation(payload.title, targetLang) || scriptsDisagree(payload.title, targetLang))) {
+  // LLM often translates only title/description. The leftover lists (or a leftover
+  // title) still have to force a second pass.
+  if (!from && payloadLooksForeign(payload, targetLang)) {
     from = 'auto';
   }
   if (!from) return payload;
@@ -1784,9 +2012,62 @@ serve(async (req) => {
         instructions: Array.isArray(recipeIn.instructions) ? recipeIn.instructions.map(String) : [],
       };
       const translated = await translateIfNeeded(payload, undefined, lang);
-      const changed = translated.title !== payload.title || translated.description !== payload.description;
+      const changed = recipeFieldsChanged(translated, payload);
       return new Response(
         JSON.stringify({ ...cleanTexts(translated), translated: changed }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const imageIn = typeof body.image === 'string' ? body.image.trim() : '';
+    if (imageIn) {
+      if (!/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(imageIn)) {
+        return new Response(
+          JSON.stringify({
+            error: lang === 'ru'
+              ? 'Нужен снимок JPEG, PNG или WebP.'
+              : 'Please attach a JPEG, PNG or WebP screenshot.',
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+      if (imageIn.length > SCREENSHOT_MAX_CHARS) {
+        return new Response(
+          JSON.stringify({
+            error: lang === 'ru'
+              ? 'Скрин слишком большой. Обрежьте его ближе к тексту рецепта.'
+              : 'This screenshot is too large. Crop closer to the recipe text.',
+          }),
+          { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const visionRecipes = await tryVisionStructure(imageIn, lang);
+      if (!visionRecipes?.length) {
+        return new Response(
+          JSON.stringify({ error: screenshotReadError(lang), llmError: llmDiag }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const translated = await translateRecipeList(
+        visionRecipes,
+        lang,
+        undefined,
+        visionRecipes[0].title || 'Recipe',
+      );
+      const first = translated[0];
+      const isPartial = !first.ingredients.length && !first.instructions.length;
+      return new Response(
+        JSON.stringify({
+          ...first,
+          recipes: translated,
+          sourceLang: undefined,
+          translated: true,
+          note: isPartial ? 'partial_screenshot' : undefined,
+          llmError: llmDiag,
+          translateError: translateDiag,
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
@@ -1812,7 +2093,11 @@ serve(async (req) => {
       let mlImage: string | undefined;
 
       const dropChromeMeta = () => {
-        if (mlTitle && (looksLikeUrlJunk(mlTitle, sourceUrl) || looksLikeFacebookChrome(mlTitle))) {
+        if (mlTitle && (
+          looksLikeUrlJunk(mlTitle, sourceUrl)
+          || looksLikeFacebookChrome(mlTitle)
+          || looksLikeBio(sanitizeTitle(mlTitle))
+        )) {
           mlTitle = undefined;
         }
         if (mlDesc && (isLoginWallText(mlDesc) || looksLikeFacebookChrome(mlDesc))) {
@@ -1821,7 +2106,7 @@ serve(async (req) => {
       };
 
       const pickCaption = (title?: string, desc?: string) => {
-        const d = desc ?? '';
+        const d = unwrapSocialQuote(desc ?? '');
         const t = title ? stripMetaChrome(title) : '';
         const picked = t.length > d.length * 1.3 && t.length > d.length + 80 ? t : d;
         return isLoginWallText(picked) || looksLikeFacebookChrome(picked) ? '' : picked;
@@ -1861,10 +2146,10 @@ serve(async (req) => {
         if (!mlDesc && pageOgDesc && !isLoginWallText(pageOgDesc)) mlDesc = pageOgDesc;
         if (!mlImage && isUsableImageUrl(pageImage)) mlImage = pageImage;
         const fromPage = htmlToCaption(html, sourceUrl);
-        const pageCaption = fromPage.text.length > 80 ? fromPage.text : pickCaption(pageOgTitle, pageOgDesc);
-        if (pageCaption.length > rawCaption.length && !isLoginWallText(pageCaption)) {
-          rawCaption = pageCaption;
-        }
+        const embedded = /instagram\.com/i.test(sourceUrl) ? extractInstagramEmbeddedRecipe(html) : '';
+        const pageCaption = embedded
+          || (fromPage.text.length > 80 ? fromPage.text : pickCaption(pageOgTitle, pageOgDesc));
+        rawCaption = betterSocialText(rawCaption, pageCaption);
       };
 
       // Direct HTML fills missing photo/title and a richer caption. Previously this ran only
@@ -1900,9 +2185,10 @@ serve(async (req) => {
       const applyReader = async (target = sourceUrl) => {
         usedReader = true;
         const full = await fetchFullText(target);
-        if (full && full.text.length > rawCaption.length && !isLoginWallText(full.text)) {
-          rawCaption = full.text;
+        if (full?.html && /instagram\.com/i.test(target)) {
+          rawCaption = betterSocialText(rawCaption, extractInstagramEmbeddedRecipe(full.html));
         }
+        if (full?.text) rawCaption = betterSocialText(rawCaption, full.text);
         if (!mlImage && full?.image) mlImage = full.image;
       };
       if (captionLooksThin(rawCaption)) await applyReader();
@@ -1947,16 +2233,26 @@ serve(async (req) => {
         );
       }
 
-      const rawTitle = (structured?.title && structured.title.trim() && !looksLikeFacebookChrome(structured.title))
-        ? structured.title
+      const structuredTitle = structured?.title?.trim() ?? '';
+      const rawTitle = (structuredTitle
+        && !looksLikeFacebookChrome(structuredTitle)
+        && !looksLikeBio(structuredTitle))
+        ? structuredTitle
         : stripMetaChrome(mlTitle ?? '');
       let finalTitle = sanitizeTitle(rawTitle);
-      if (looksLikeFacebookChrome(finalTitle)) finalTitle = '';
+      if (looksLikeFacebookChrome(finalTitle) || looksLikeBio(finalTitle)) finalTitle = '';
       if (finalTitle.length > 80) finalTitle = sanitizeTitle(finalTitle.split(/[.!?]/)[0]);
       if (!finalTitle || looksLikeBio(finalTitle) || looksLikeFacebookChrome(finalTitle)) {
-        const firstLine = cleanDesc.split('\n').find((l) => l.trim().length > 3) ?? '';
+        const firstLine = cleanDesc.split('\n').find((l) => {
+          const candidate = sanitizeTitle(l.split(/[.!?]/)[0]);
+          return candidate.length > 2
+            && !looksLikeFacebookChrome(candidate)
+            && !looksLikeBio(candidate);
+        }) ?? '';
         const candidate = sanitizeTitle(firstLine.split(/[.!?]/)[0]);
-        if (candidate.length > 2 && !looksLikeFacebookChrome(candidate)) finalTitle = candidate;
+        if (candidate.length > 2 && !looksLikeFacebookChrome(candidate) && !looksLikeBio(candidate)) {
+          finalTitle = candidate;
+        }
       }
 
       if (isFacebook && (!finalTitle || looksLikeFacebookChrome(finalTitle)) && !finalIngredients.length) {
@@ -1966,10 +2262,14 @@ serve(async (req) => {
         );
       }
 
+      const structuredDesc = structured?.description ?? '';
       let socialOut = {
         title: finalTitle,
-        description: structured?.description && !isLoginWallText(structured.description) && !looksLikeFacebookChrome(structured.description)
-          ? structured.description
+        description: structuredDesc
+          && !isLoginWallText(structuredDesc)
+          && !looksLikeFacebookChrome(structuredDesc)
+          && !looksLikeCommentBlurb(structuredDesc)
+          ? structuredDesc
           : extractIntro(cleanDesc),
         ingredients: finalIngredients,
         instructions: finalInstructions,
@@ -2311,23 +2611,21 @@ serve(async (req) => {
 
     // Content decides, because page metadata is wrong often enough to send a Russian recipe
     // off to be translated from Romanian; sourceLang is only the fallback signal.
-    const langSample = [title, ...ingredients.slice(0, 5), instructions[0] ?? ''].join(' ');
+    const original = { title, description: description ?? '', ingredients, instructions };
+    const langSample = leftoverSourceSample(original, lang);
     const from = await translateFrom(langSample, sourceLang, lang);
-    let translated = false;
     sourceLang = from ? (from === 'auto' ? sourceLang : from) : lang;
 
     const tr = await translateIfNeeded(
-      { title, description: description ?? '', ingredients, instructions },
+      original,
       sourceLang === lang ? undefined : sourceLang,
       lang,
     );
-    if (tr.title !== title || tr.description !== (description ?? '')) {
-      translated = true;
-      outTitle = tr.title || outTitle;
-      outDesc = tr.description || outDesc;
-      if (tr.ingredients.length) outIngredients = tr.ingredients;
-      if (tr.instructions.length) outInstructions = tr.instructions;
-    }
+    outTitle = tr.title || outTitle;
+    outDesc = tr.description || outDesc;
+    if (tr.ingredients.length) outIngredients = tr.ingredients;
+    if (tr.instructions.length) outInstructions = tr.instructions;
+    const translated = recipeFieldsChanged(tr, original);
 
     return new Response(
       JSON.stringify({
