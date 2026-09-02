@@ -1270,8 +1270,9 @@ function llmFieldExamples(lang: string) {
 // Overridable via GROQ_MODEL so the next migration needs no code change.
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-20b';
 
-// gpt-oss cannot see images. Screenshots go to a multimodal Groq/OpenAI model.
-const DEFAULT_GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+// gpt-oss cannot see images. Groq dropped Llama 4 Scout; current vision is Qwen.
+const DEFAULT_GROQ_VISION_MODEL = 'qwen/qwen3.6-27b';
+const DEAD_GROQ_VISION = /llama-4-scout|llama-4-maverick|llava/i;
 const SCREENSHOT_MAX_CHARS = 2_000_000;
 
 // Groq's free tier caps tokens-per-minute at 8000 for gpt-oss-20b, and a reserved
@@ -1334,9 +1335,22 @@ function resolveLlm(): { key: string; apiUrl: string; model: string } | null {
 
 function resolveVisionModel(llm: { apiUrl: string; model: string }): string {
   if (llm.apiUrl.includes('groq.com')) {
-    return Deno.env.get('GROQ_VISION_MODEL') ?? DEFAULT_GROQ_VISION_MODEL;
+    const override = Deno.env.get('GROQ_VISION_MODEL');
+    if (override && !DEAD_GROQ_VISION.test(override)) return override;
+    return DEFAULT_GROQ_VISION_MODEL;
   }
   return Deno.env.get('OPENAI_VISION_MODEL') ?? llm.model;
+}
+
+function llmRequestExtras(model: string): Record<string, unknown> {
+  if (model.startsWith('openai/gpt-oss')) {
+    return { reasoning_effort: 'low' };
+  }
+  // Qwen 3.x thinks by default and can spend the whole reservation before any OCR text.
+  if (model.startsWith('qwen/qwen3')) {
+    return { reasoning_effort: 'none' };
+  }
+  return {};
 }
 
 // gpt-oss models occasionally wrap JSON in markdown fences despite response_format,
@@ -1366,12 +1380,7 @@ async function completeLlm(
   if (!llm) return null;
 
   const model = modelOverride ?? llm.model;
-  // Only the gpt-oss family accepts reasoning_effort (low/medium/high); other Groq models
-  // reject the field outright, so it is added conditionally. 'low' minimises the tokens
-  // burned on reasoning before the model starts writing JSON.
-  const extras = model.startsWith('openai/gpt-oss')
-    ? { reasoning_effort: 'low' }
-    : {};
+  const extras = llmRequestExtras(model);
 
   const post = (payload: Record<string, unknown>) =>
     fetch(llm.apiUrl, {
@@ -1434,8 +1443,13 @@ async function completeLlm(
     }
 
     const json = await res.json();
-    const content = json?.choices?.[0]?.message?.content;
-    if (typeof content !== 'string' || !content.trim()) {
+    const message = json?.choices?.[0]?.message;
+    const content = typeof message?.content === 'string' && message.content.trim()
+      ? message.content
+      : typeof message?.reasoning === 'string' && message.reasoning.trim()
+        ? message.reasoning
+        : '';
+    if (!content.trim()) {
       llmDiag = `${label}_empty_content`;
       console.error(`[llm] ${label} empty content`, JSON.stringify(json).slice(0, 300));
       return null;
@@ -1583,6 +1597,11 @@ function screenshotVisionError(lang: string): string {
       ? 'Распознавание скринов не настроено.'
       : 'Screenshot recognition is not configured.';
   }
+  if (/decommissioned|model_not_found|does not exist|unknown model/i.test(llmDiag)) {
+    return ru
+      ? 'Модель распознавания обновилась. Подождите минуту и повторите.'
+      : 'The recognition model changed. Wait a minute and try again.';
+  }
   return ru
     ? 'Не удалось прочитать скрин. Подождите минуту и попробуйте ещё раз.'
     : 'Could not read the screenshot. Wait a minute and try again.';
@@ -1613,7 +1632,7 @@ Return plain text only. No JSON. No commentary.`,
 
   if (!content) return null;
   const text = content.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
-  return text.length >= 40 ? text : null;
+  return text.length >= 20 ? text : null;
 }
 
 async function translateRecipeList(
