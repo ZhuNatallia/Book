@@ -1514,7 +1514,40 @@ function coerceLlmRecipes(out: Record<string, unknown> | null): StructuredRecipe
     recipes.push(recipe);
     if (recipes.length >= MAX_RECIPES_FROM_CAPTION) break;
   }
-  return recipes;
+  return mergeComponentRecipes(recipes);
+}
+
+const COMPONENT_TITLE_RE =
+  /^(для\s+)?(крем|глазур|ganache|frosting|buttercream|icing|начинк|cream|glasur|gla[cç]age|crema)\b|для крема|for the cream|für die creme|pour la cr[eè]me/i;
+
+function isComponentRecipe(recipe: StructuredRecipe): boolean {
+  const title = (recipe.title ?? '').trim();
+  if (!title || !COMPONENT_TITLE_RE.test(title)) return false;
+  return recipe.instructions.length <= 3;
+}
+
+// "Ingredients for the cream" is a section of the same cake, not a second dish.
+function mergeComponentRecipes(recipes: StructuredRecipe[]): StructuredRecipe[] {
+  if (recipes.length < 2) return recipes;
+  const extras = recipes.filter(isComponentRecipe);
+  const mains = recipes.filter((recipe) => !isComponentRecipe(recipe));
+  if (!extras.length || !mains.length) return recipes;
+  const first: StructuredRecipe = {
+    ...mains[0],
+    ingredients: [...mains[0].ingredients],
+    instructions: [...mains[0].instructions],
+  };
+  for (const extra of extras) {
+    const tag = (extra.title ?? '').trim();
+    first.ingredients.push(
+      ...extra.ingredients.map((line) => {
+        if (!tag || line.toLowerCase().includes(tag.toLowerCase())) return line;
+        return `${tag}: ${line}`;
+      }),
+    );
+    first.instructions.push(...extra.instructions);
+  }
+  return [first, ...mains.slice(1)];
 }
 
 // Optional LLM structuring — supports Groq (free) or OpenAI.
@@ -1522,7 +1555,7 @@ function coerceLlmRecipes(out: Record<string, unknown> | null): StructuredRecipe
 async function tryLlmStructure(
   rawText: string,
   targetLang: string,
-  maxChars = 3000,
+  maxChars = 5000,
 ): Promise<(StructuredRecipe & { recipes: StructuredRecipe[] }) | null> {
   if (rawText.length < 50) return null;
 
@@ -1548,6 +1581,8 @@ Each recipes[] item:
 - ingredients: array of strings in ${langName}, each one ingredient with quantity + unit + name, e.g. ${examples.ingredients}
 - instructions: array of strings in ${langName}, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
 
+If the text has sections for batter, cream, frosting, glaze, filling, garnish or "additionally", keep ALL of those lines in the SAME recipe.ingredients array. Prefix cream/frosting lines so they stay readable, e.g. "для крема: сметана — 200 г". Never drop a cream, frosting, sauce or garnish list that belongs to the same dish. "Ingredients for the cream" is NOT a second recipe.
+
 If the text contains TWO OR MORE clearly separate dishes (carousel / "рецепт 1", "рецепт 2", "3 десерта:", numbered recipes each with their own ingredients), put each dish in its own recipes[] object.
 If it is ONE dish — including a cake plus its cream, or optional substitutions — return a single-item recipes array.
 Do not invent dishes. Do not split one recipe into an ingredients card and a steps card.
@@ -1560,9 +1595,10 @@ ${text}`,
     }],
   }, 'structure');
 
-  if (!out) return null;
-  const recipes = coerceLlmRecipes(out);
-  if (!recipes.length) return null;
+If the text has sections for batter, cream, frosting, glaze, filling, garnish or "additionally", keep ALL of those lines in the SAME recipe.ingredients array. Prefix cream/frosting lines so they stay readable, e.g. "для крема: сметана — 200 г". Never drop a cream, frosting, sauce or garnish list that belongs to the same dish. "Ingredients for the cream" is NOT a second recipe.
+
+If the text contains TWO OR MORE clearly separate dishes (carousel / "рецепт 1", "рецепт 2", "3 десерта:", numbered recipes each with their own ingredients), put each dish in its own recipes[] object.
+If it is ONE dish — including a cake plus its cream, or optional substitutions — return a single-item recipes array.
   const first = recipes[0];
   return {
     title: first.title,
@@ -1614,14 +1650,14 @@ async function tryVisionTranscript(dataUrl: string): Promise<string | null> {
   if (!llm) return null;
 
   const content = await completeLlm({
-    max_tokens: 1800,
+    max_tokens: 2200,
     messages: [{
       role: 'user',
       content: [
         {
           type: 'text',
           text: `Transcribe ALL readable text from this screenshot, including Cyrillic.
-Keep the original language and line breaks. Include ingredient lists and cooking steps in full.
+Keep the original language and line breaks. Include EVERY ingredient list in full — batter, cream, frosting, glaze, filling, garnish, "additionally". Keep section headings such as "Ингредиенты для крема" / "Приготовление".
 Skip only UI chrome: Like, Reply, Share, Follow, timestamps, "Leave a comment", reaction bars.
 Return plain text only. No JSON. No commentary.`,
         },
@@ -2086,7 +2122,12 @@ serve(async (req) => {
         );
       }
 
-      const parsed = await structureCaption(cleanSocialText(splitCaptionLines(transcript)), lang);
+      const priorText = typeof body.priorText === 'string' ? body.priorText.trim() : '';
+      const combined = priorText
+        ? `Page 1 of the same recipe (already read). Merge page 2 into ONE recipe. Do not drop cream, frosting or garnish lists.\n\n--- page 1 ---\n${priorText}\n\n--- page 2 ---\n${transcript}`
+        : transcript;
+
+      const parsed = await structureCaption(cleanSocialText(splitCaptionLines(combined)), lang);
       const visionRecipes = parsed.recipes.length
         ? parsed.recipes
         : [{

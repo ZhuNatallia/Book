@@ -164,6 +164,25 @@ function parseIngredientString(raw: string): { quantity: number; unit: string; n
   return { quantity: 1, unit: 'pcs', name: text };
 }
 
+function formatPriorRecipe(parsed: ParsedRecipe): string {
+  const lines: string[] = [];
+  if (parsed.title) lines.push(parsed.title);
+  if (parsed.description) lines.push(parsed.description);
+  if (parsed.ingredients.length) {
+    lines.push('Ingredients:');
+    for (const item of parsed.ingredients) {
+      lines.push(`- ${item.quantity} ${item.unit} ${item.name}`.trim());
+    }
+  }
+  if (parsed.steps.length) {
+    lines.push('Steps:');
+    parsed.steps.forEach((step, idx) => {
+      lines.push(`${idx + 1}. ${step.instruction}`);
+    });
+  }
+  return lines.join('\n');
+}
+
 // Explains why an import came back without ingredients or steps, so the user is never
 // left with an empty card and no reason for it.
 const IMPORT_NOTE_KEYS: Record<string, string> = {
@@ -202,6 +221,7 @@ export function AddRecipeModal({
   const [duplicateRecipe, setDuplicateRecipe] = useState<FullRecipe | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
+  const screenshotContinueRef = useRef(false);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -569,20 +589,31 @@ export function AddRecipeModal({
     const keepCover = (imageUrl?.startsWith('http') ? imageUrl : undefined)
       || (parseResults[0]?.imageUrl?.startsWith('http') ? parseResults[0].imageUrl : undefined);
     const keepTitle = parseResults[0]?.title;
+    const existing = parseResults[0];
+    const continueFrom = screenshotContinueRef.current
+      && existing
+      && (existing.ingredients.length > 0 || existing.steps.length > 0);
+    screenshotContinueRef.current = false;
 
     setLoadingPlatform('screenshot');
     setIsParsing(true);
     setImportingStep(3);
     try {
       const { data, error } = await supabase.functions.invoke('parse-recipe', {
-        body: { image: dataUrl, lang: language },
+        body: {
+          image: dataUrl,
+          lang: language,
+          ...(continueFrom ? { priorText: formatPriorRecipe(existing) } : {}),
+        },
       });
       if (error || data?.error) throw new Error(error?.message ?? data?.error);
       applyParseData(data, { keepCover, keepTitle });
-      try {
-        await recordImport();
-      } catch (err) {
-        if (!isQuotaError(err)) console.error(err);
+      if (!continueFrom) {
+        try {
+          await recordImport();
+        } catch (err) {
+          if (!isQuotaError(err)) console.error(err);
+        }
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1090,7 +1121,10 @@ export function AddRecipeModal({
                 />
                 <button
                   type="button"
-                  onClick={() => screenshotInputRef.current?.click()}
+                  onClick={() => {
+                    screenshotContinueRef.current = false;
+                    screenshotInputRef.current?.click();
+                  }}
                   disabled={isParsing || isCompressing || !online || !canImport}
                   className={`w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
                 >
@@ -1099,6 +1133,25 @@ export function AddRecipeModal({
                     : <Camera className="w-5 h-5" />}
                   {isCompressing ? t('compressing') : t('importScreenshotAction')}
                 </button>
+                {parseResults.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        screenshotContinueRef.current = true;
+                        screenshotInputRef.current?.click();
+                      }}
+                      disabled={isParsing || isCompressing || !online || !canImport}
+                      className={`w-full mt-2 py-3 ${theme.btnSoft} ${theme.textPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
+                    >
+                      <Plus className="w-5 h-5" />
+                      {t('importScreenshotMore')}
+                    </button>
+                    <p className={`text-xs mt-2 ${theme.textSecondary}`}>
+                      {t('importScreenshotMoreHint')}
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Loading Animation */}
