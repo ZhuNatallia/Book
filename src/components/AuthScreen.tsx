@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
+import { ignoreNextSignupSession } from '../i18n/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useOnline } from '../lib/online';
 import { giftRedirectUrl, persistGiftFromUrl, readPendingGift } from '../lib/gift';
@@ -19,6 +20,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<'google' | 'apple' | null>(null);
@@ -66,17 +68,29 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
       return;
     }
 
-    if (!email.trim() || !password.trim()) {
+    if (!email.trim() || (mode !== 'forgot' && !password.trim())) {
       setError(t('authErrorGeneric'));
       return;
+    }
+
+    if (mode === 'signup') {
+      if (password.length < 6) {
+        setError(t('authPasswordShort'));
+        return;
+      }
+      if (password !== passwordConfirm) {
+        setError(t('authPasswordMismatch'));
+        return;
+      }
     }
 
     setLoading(true);
 
     try {
       if (mode === 'signup') {
-        const { error: signUpError } = await supabase.auth.signUp({
-          email,
+        ignoreNextSignupSession();
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
           password,
           options: { emailRedirectTo: getRedirectUrl() },
         });
@@ -86,12 +100,19 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
           } else {
             setError(signUpError.message);
           }
+        } else if (data.user?.identities && data.user.identities.length === 0) {
+          setError(t('authErrorExists'));
         } else {
-          setSuccess(t('authResetSent'));
+          if (data.session) {
+            await supabase.auth.signOut();
+          }
+          setPassword('');
+          setPasswordConfirm('');
+          setSuccess(t('authSignUpDone'));
           setMode('login');
         }
       } else if (mode === 'login') {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (signInError) {
           if (signInError.message.includes('Invalid') || signInError.message.includes('invalid')) {
             setError(t('authErrorInvalid'));
@@ -143,7 +164,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
         {mode !== 'forgot' && (
           <div className="flex w-full mb-6 neu-segment p-1">
             <button
-              onClick={() => { setMode('login'); setError(null); }}
+              onClick={() => { setMode('login'); setError(null); setSuccess(null); }}
               className={`flex-1 py-2.5 text-base font-medium transition-all ${
                 mode === 'login'
                   ? theme.chipActive
@@ -153,7 +174,7 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
               {t('authLogin')}
             </button>
             <button
-              onClick={() => { setMode('signup'); setError(null); }}
+              onClick={() => { setMode('signup'); setError(null); setSuccess(null); }}
               className={`flex-1 py-2.5 text-base font-medium transition-all ${
                 mode === 'signup'
                   ? theme.chipActive
@@ -171,11 +192,14 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
             <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textSecondary}`} />
             <input
               type="email"
+              name="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={t('authEmail')}
               className={inputCls}
               disabled={loading}
+              required
             />
           </div>
 
@@ -184,11 +208,15 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
               <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textSecondary}`} />
               <input
                 type={showPassword ? 'text' : 'password'}
+                name={mode === 'signup' ? 'new-password' : 'current-password'}
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('authPassword')}
                 className={`${inputCls} pr-11`}
                 disabled={loading}
+                required
+                minLength={6}
               />
               <button
                 type="button"
@@ -197,6 +225,24 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
+            </div>
+          )}
+
+          {mode === 'signup' && (
+            <div className="relative">
+              <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textSecondary}`} />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                name="new-password-confirm"
+                autoComplete="new-password"
+                value={passwordConfirm}
+                onChange={(e) => setPasswordConfirm(e.target.value)}
+                placeholder={t('authPasswordConfirm')}
+                className={`${inputCls} pr-11`}
+                disabled={loading}
+                required
+                minLength={6}
+              />
             </div>
           )}
 

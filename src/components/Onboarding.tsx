@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme } from '../i18n/ThemeContext';
@@ -36,6 +36,10 @@ const LANGS: { code: Language; label: string }[] = [
 
 type Phase = 'cover' | 'ask' | 'tour';
 
+const COVER_HOLD_MS = 7500;
+const AFTER_LANG_MS = 1800;
+const COVER_OPEN_MS = 2000;
+
 interface OnboardingProps {
   onComplete: () => void;
 }
@@ -50,6 +54,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [phase, setPhase] = useState<Phase>('cover');
   const [open, setOpen] = useState(false);
   const [slide, setSlide] = useState(0);
+  const holdTimer = useRef<number | null>(null);
+  const langTimer = useRef<number | null>(null);
 
   const finish = (sawTour: boolean) => {
     if (sawTour || !hasSeenTour()) markTourSeen();
@@ -73,18 +79,34 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setOpen(true);
   };
 
+  const clearCoverTimers = () => {
+    if (holdTimer.current) window.clearTimeout(holdTimer.current);
+    if (langTimer.current) window.clearTimeout(langTimer.current);
+    holdTimer.current = null;
+    langTimer.current = null;
+  };
+
   useEffect(() => {
     if (phase !== 'cover') return;
     if (prefersReducedMotion()) return;
-    const timer = window.setTimeout(openCover, 2800);
-    return () => window.clearTimeout(timer);
+    holdTimer.current = window.setTimeout(openCover, COVER_HOLD_MS);
+    return () => {
+      if (holdTimer.current) window.clearTimeout(holdTimer.current);
+    };
   }, [phase]);
 
   useEffect(() => {
     if (!open) return;
-    const timer = window.setTimeout(afterCover, 900);
+    const timer = window.setTimeout(afterCover, COVER_OPEN_MS);
     return () => window.clearTimeout(timer);
   }, [open]);
+
+  const pickLanguage = (code: Language) => {
+    setLanguage(code);
+    if (open || prefersReducedMotion()) return;
+    clearCoverTimers();
+    langTimer.current = window.setTimeout(openCover, AFTER_LANG_MS);
+  };
 
   const slides = [
     {
@@ -138,7 +160,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setLanguage(lang.code);
+                pickLanguage(lang.code);
               }}
               className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
                 language === lang.code ? theme.chipActive : theme.chip
