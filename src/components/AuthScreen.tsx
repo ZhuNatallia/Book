@@ -26,6 +26,8 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
   const [socialLoading, setSocialLoading] = useState<'google' | 'apple' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const pendingGift = typeof window !== 'undefined' ? (persistGiftFromUrl(), readPendingGift()) : null;
 
@@ -57,6 +59,29 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
 
   const handleGoogleSignIn = () => handleOAuth('google');
   const handleAppleSignIn = () => handleOAuth('apple');
+
+  const handleResendConfirm = async () => {
+    if (!email.trim() || !navigator.onLine) return;
+    setError(null);
+    setResending(true);
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: { emailRedirectTo: getRedirectUrl() },
+      });
+      if (resendError) {
+        const msg = resendError.message.toLowerCase();
+        setError(msg.includes('rate limit') ? t('authErrorEmailRate') : resendError.message);
+      } else {
+        setSuccess(t('authResendSent'));
+      }
+    } catch {
+      setError(t('authErrorGeneric'));
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,26 +120,35 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
           options: { emailRedirectTo: getRedirectUrl() },
         });
         if (signUpError) {
-          if (signUpError.message.includes('already')) {
+          const msg = signUpError.message.toLowerCase();
+          if (msg.includes('already')) {
             setError(t('authErrorExists'));
+          } else if (msg.includes('rate limit')) {
+            setError(t('authErrorEmailRate'));
           } else {
             setError(signUpError.message);
           }
         } else if (data.user?.identities && data.user.identities.length === 0) {
           setError(t('authErrorExists'));
         } else {
+          const needsEmailConfirm = !data.session;
           if (data.session) {
             await supabase.auth.signOut();
           }
           setPassword('');
           setPasswordConfirm('');
-          setSuccess(t('authSignUpDone'));
+          setSuccess(needsEmailConfirm ? t('authSignUpDone') : t('authSignUpReady'));
+          setAwaitingConfirm(needsEmailConfirm);
           setMode('login');
         }
       } else if (mode === 'login') {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (signInError) {
-          if (signInError.message.includes('Invalid') || signInError.message.includes('invalid')) {
+          const msg = signInError.message.toLowerCase();
+          if (msg.includes('not confirmed') || msg.includes('email not confirmed')) {
+            setAwaitingConfirm(true);
+            setError(t('authErrorUnconfirmed'));
+          } else if (msg.includes('invalid')) {
             setError(t('authErrorInvalid'));
           } else {
             setError(signInError.message);
@@ -259,16 +293,40 @@ export function AuthScreen({ initialMode = 'login' }: AuthScreenProps) {
           )}
 
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              {error}
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <p>{error}</p>
+                {awaitingConfirm && mode !== 'forgot' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleResendConfirm()}
+                    disabled={resending || loading}
+                    className="mt-2 font-medium underline disabled:opacity-60"
+                  >
+                    {resending ? <Loader2 className="w-4 h-4 animate-spin inline" /> : t('authResendConfirm')}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
           {success && (
-            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 text-sm">
-              <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              {success}
+            <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-600 text-sm">
+              <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <p>{success}</p>
+                {awaitingConfirm && mode !== 'forgot' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleResendConfirm()}
+                    disabled={resending || loading}
+                    className="mt-2 font-medium underline disabled:opacity-60"
+                  >
+                    {resending ? <Loader2 className="w-4 h-4 animate-spin inline" /> : t('authResendConfirm')}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
