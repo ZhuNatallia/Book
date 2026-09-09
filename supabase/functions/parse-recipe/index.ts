@@ -404,7 +404,7 @@ function extractLdJsonBlocks(html: string): any[] {
 }
 
 // Measurement units (RU + EN). Uses negative lookbehind instead of \b so it matches after stripped emoji.
-const MEASURE = /(?<!\w)(?:\d+[.,]?\d*\s*)?(щепотк[а-яё]*|pinch(?:es)?)\b|(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece)\b/i;
+const MEASURE = /(?<!\w)(?:\d+[.,]?\d*\s*)?(щепотк[а-яё]*|pinch(?:es)?|prise)\b|(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece|el|tl|esslöffel|teelöffel|kilogramm|gramm)\b/i;
 
 const FB_SLOGAN_RE =
   /^(facebook|log\s*in(?:to\s+facebook)?|explore what you love|исследуйте (?:то, что|вещи, которые) вы любите|войти(?:\s+на\s+facebook)?|вхід)$/i;
@@ -492,7 +492,7 @@ function cleanTexts(v: {
 }
 
 // Cooking action verbs (RU + EN)
-const COOK_VERB = /\b(смешай|добавь|нарежь|взбей|выпекай|обжарь|разогрей|залей|посоли|посыпь|перемешай|вылей|соедини|раскатай|запекай|варить|тушить|кипятить|измельчи|натри|mix|add|bake|cook|stir|whisk|combine|heat|pour|chop|blend|fold|season|preheat)\b/i;
+const COOK_VERB = /\b(смешай|добавь|нарежь|взбей|выпекай|обжарь|разогрей|залей|посоли|посыпь|перемешай|вылей|соедини|раскатай|запекай|варить|тушить|кипятить|измельчи|натри|mix|add|bake|cook|stir|whisk|combine|heat|pour|chop|blend|fold|season|preheat|kochen|schälen|schneiden|mischen|rühren|braten|backen|erhitzen|gießen|würzen|dämpfen|garen|geben|hacken|reiben|pellen)\b/i;
 
 // Parse plain-text description to extract ingredients and steps using heuristic line classification.
 // Works without explicit section headers — classifies each line by its content pattern.
@@ -508,10 +508,10 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
     const stripped = line.replace(EMOJI_RE, '');
 
     // Section headers → switch mode, don't include the header text itself
-    if (/^(ингредиент|состав|продукт|ingredient)/i.test(stripped) && stripped.length < 50) {
+    if (/^(ингредиент|склад|складник|состав|продукт|ingredient|zutaten|das benötigen|ingrédients?|ingredienti|ingredientes|składnik)/i.test(stripped) && stripped.length < 80) {
       mode = 'ing'; continue;
     }
-    if (/^(приготовлени|шаги|процесс|инструкц|способ|метод|steps?|directions?|method|how\s+to)/i.test(stripped) && stripped.length < 60) {
+    if (/^(приготовлени|приготуванн|шаги|крок|процесс|инструкц|способ|метод|steps?|directions?|method|how\s+to|zubereitung|anleitung|so geht|vorbereitung|arbeitsschritt|préparation|preparazione|preparación|przygotowan)/i.test(stripped) && stripped.length < 80) {
       mode = 'steps'; continue;
     }
 
@@ -881,13 +881,16 @@ function captionLooksThin(s: string): boolean {
 async function structureCaption(
   cleanDesc: string,
   lang: string,
+  opts?: { maxChars?: number; mergePages?: boolean },
 ): Promise<{
   structured: { title?: string; description?: string; ingredients: string[]; instructions: string[] } | null;
   ingredients: string[];
   instructions: string[];
   recipes: StructuredRecipe[];
 }> {
-  const structured = cleanDesc.length > 50 ? await tryLlmStructure(cleanDesc, lang) : null;
+  const structured = cleanDesc.length > 50
+    ? await tryLlmStructure(cleanDesc, lang, opts?.maxChars ?? 5000, opts?.mergePages === true)
+    : null;
   const regexResult = cleanDesc ? parseDescriptionText(cleanDesc) : { ingredients: [], instructions: [] };
   const ingredients = structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients;
   const instructions = splitLongSteps(
@@ -1556,6 +1559,7 @@ async function tryLlmStructure(
   rawText: string,
   targetLang: string,
   maxChars = 5000,
+  mergePages = false,
 ): Promise<(StructuredRecipe & { recipes: StructuredRecipe[] }) | null> {
   if (rawText.length < 50) return null;
 
@@ -1582,7 +1586,9 @@ Each recipes[] item:
 - instructions: array of strings in ${langName}, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
 
 If the text has sections for batter, cream, frosting, glaze, filling, garnish or "additionally", keep ALL of those lines in the SAME recipe.ingredients array. Prefix cream/frosting lines so they stay readable, e.g. "для крема: сметана — 200 г". Never drop a cream, frosting, sauce or garnish list that belongs to the same dish. "Ingredients for the cream" is NOT a second recipe.
-
+${mergePages ? `
+This text is TWO PAGES of ONE recipe. Page 2 is usually the method (Zubereitung / Приготовление / Anleitung / steps). Keep every page-1 ingredient. Put every page-2 cooking paragraph into instructions. Never return empty instructions if page 2 has method text. Do not treat the method page as a second dish.
+` : ''}
 If the text contains TWO OR MORE clearly separate dishes (carousel / "рецепт 1", "рецепт 2", "3 десерта:", numbered recipes each with their own ingredients), put each dish in its own recipes[] object.
 If it is ONE dish — including a cake plus its cream, or optional substitutions — return a single-item recipes array.
 Do not invent dishes. Do not split one recipe into an ingredients card and a steps card.
@@ -1656,7 +1662,7 @@ async function tryVisionTranscript(dataUrl: string): Promise<string | null> {
         {
           type: 'text',
           text: `Transcribe ALL readable text from this screenshot, including Cyrillic.
-Keep the original language and line breaks. Include EVERY ingredient list in full — batter, cream, frosting, glaze, filling, garnish, "additionally". Keep section headings such as "Ингредиенты для крема" / "Приготовление".
+Keep the original language and line breaks. Include EVERY ingredient list in full — batter, cream, frosting, glaze, filling, garnish, "additionally". Keep section headings such as "Ингредиенты для крема" / "Приготовление" / "Zutaten" / "Zubereitung" / "Anleitung". Transcribe the method/steps in full, including long paragraphs.
 Skip only UI chrome: Like, Reply, Share, Follow, timestamps, "Leave a comment", reaction bars.
 Return plain text only. No JSON. No commentary.`,
         },
@@ -2123,10 +2129,13 @@ serve(async (req) => {
 
       const priorText = typeof body.priorText === 'string' ? body.priorText.trim() : '';
       const combined = priorText
-        ? `Page 1 of the same recipe (already read). Merge page 2 into ONE recipe. Do not drop cream, frosting or garnish lists.\n\n--- page 1 ---\n${priorText}\n\n--- page 2 ---\n${transcript}`
+        ? `Page 1 of the same recipe (already read). Page 2 is usually the METHOD / STEPS (Zubereitung, Приготовление, Anleitung). Merge into ONE recipe. Keep ALL page 1 ingredients. Put ALL page 2 cooking text into instructions. Do not drop cream, frosting or garnish lists.\n\n--- page 1 ---\n${priorText}\n\n--- page 2 ---\n${transcript}`
         : transcript;
 
-      const parsed = await structureCaption(cleanSocialText(splitCaptionLines(combined)), lang);
+      const parsed = await structureCaption(cleanSocialText(splitCaptionLines(combined)), lang, {
+        maxChars: priorText ? 14000 : 5000,
+        mergePages: Boolean(priorText),
+      });
       const visionRecipes = parsed.recipes.length
         ? parsed.recipes
         : [{
@@ -2155,13 +2164,14 @@ serve(async (req) => {
       );
       const first = translated[0];
       const isPartial = !first.ingredients.length && !first.instructions.length;
+      const noSteps = Boolean(priorText) && !first.instructions.length;
       return new Response(
         JSON.stringify({
           ...first,
           recipes: translated,
           sourceLang: undefined,
           translated: true,
-          note: isPartial ? 'partial_screenshot' : undefined,
+          note: isPartial ? 'partial_screenshot' : noSteps ? 'screenshot_no_steps' : undefined,
           llmError: llmDiag,
           translateError: translateDiag,
         }),

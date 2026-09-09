@@ -18,6 +18,7 @@ import {
   cloneRecipeForUser,
   translateCloneToLang,
   updateRecipeFlags,
+  setRecipeVisible,
   RecipeFlagPatch,
   migrateDataUrlRecipeImages,
 } from '../lib/recipeDb';
@@ -89,15 +90,102 @@ function mergeByNameUnit(
   ];
 }
 
+function withLiveVisibility(full: FullRecipe, liveRecipes: FullRecipe[]): FullRecipe {
+  const live = liveRecipes.find((r) => r.recipe.id === full.recipe.id);
+  if (!live || live.recipe.visibleToFriends === full.recipe.visibleToFriends) {
+    return full;
+  }
+  return {
+    ...full,
+    recipe: { ...full.recipe, visibleToFriends: live.recipe.visibleToFriends },
+  };
+}
+
+function keepVisibility(incoming: FullRecipe, live?: FullRecipe): FullRecipe {
+  if (!live || live.recipe.visibleToFriends === incoming.recipe.visibleToFriends) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    recipe: { ...incoming.recipe, visibleToFriends: live.recipe.visibleToFriends },
+  };
+}
+
+function applySavedEyes(recipes: FullRecipe[], eyes: Record<string, boolean>): FullRecipe[] {
+  return recipes.map((full) => {
+    if (!(full.recipe.id in eyes) || full.recipe.visibleToFriends === eyes[full.recipe.id]) {
+      return full;
+    }
+    return {
+      ...full,
+      recipe: { ...full.recipe, visibleToFriends: eyes[full.recipe.id] },
+    };
+  });
+}
+
+function openedAllEyesKey(userId: string) {
+  return `sr-opened-all-eyes-v1:${userId}`;
+}
+
+function hasOpenedAllEyes(userId: string): boolean {
+  try {
+    return localStorage.getItem(openedAllEyesKey(userId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markOpenedAllEyes(userId: string) {
+  try {
+    localStorage.setItem(openedAllEyesKey(userId), '1');
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function openHiddenOwnRecipes(
+  list: FullRecipe[],
+  eyes: Record<string, boolean>,
+): { list: FullRecipe[]; openedIds: string[] } {
+  const openedIds: string[] = [];
+  const next = list.map((full) => {
+    const id = full.recipe.id;
+    if (isSampleRecipeId(id) || !isUuid(id) || full.recipe.visibleToFriends) {
+      return full;
+    }
+    openedIds.push(id);
+    eyes[id] = true;
+    return { ...full, recipe: { ...full.recipe, visibleToFriends: true } };
+  });
+  return { list: openedIds.length ? next : list, openedIds };
+}
+
+function visibilityDiffs(
+  remote: FullRecipe[],
+  eyes: Record<string, boolean>,
+): { recipeId: string; visible: boolean }[] {
+  const diffs: { recipeId: string; visible: boolean }[] = [];
+  for (const full of remote) {
+    const id = full.recipe.id;
+    if (!(id in eyes) || !isUuid(id)) continue;
+    if (eyes[id] !== full.recipe.visibleToFriends) {
+      diffs.push({ recipeId: id, visible: eyes[id] });
+    }
+  }
+  return diffs;
+}
+
 function applyPendingJobs(recipes: FullRecipe[], jobs: SyncJob[]): FullRecipe[] {
   let next = recipes;
   for (const job of jobs) {
     if (job.type === 'persistRecipe') {
       const id = job.recipe.recipe.id;
-      if (next.some((r) => r.recipe.id === id)) {
-        next = next.map((r) => (r.recipe.id === id ? job.recipe : r));
+      const existing = next.find((r) => r.recipe.id === id);
+      const incoming = keepVisibility(job.recipe, existing);
+      if (existing) {
+        next = next.map((r) => (r.recipe.id === id ? incoming : r));
       } else {
-        next = [...next, job.recipe];
+        next = [...next, incoming];
       }
     } else if (job.type === 'updateFlags') {
       next = next.map((r) => {
@@ -144,7 +232,13 @@ export function useRecipeStore(userId?: string) {
   const [recipes, setRecipes] = useState<FullRecipe[]>(() => {
     if (!userId) return sampleRecipes;
     const cache = loadBookCache(userId);
-    return cache ? [...sampleRecipes, ...cache.recipes] : sampleRecipes;
+    if (!cache) return sampleRecipes;
+    const eyes = { ...(cache.visibilityById ?? {}) };
+    let own = applySavedEyes(cache.recipes, eyes);
+    if (!hasOpenedAllEyes(userId)) {
+      own = openHiddenOwnRecipes(own, eyes).list;
+    }
+    return [...sampleRecipes, ...own];
   });
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>(() => {
     if (!userId) return [];
@@ -167,6 +261,9 @@ export function useRecipeStore(userId?: string) {
   const shoppingRef = useRef(shoppingList);
   const pantryRef = useRef(pantry);
   const mealPlanRef = useRef(mealPlan);
+  const visibilityRef = useRef<Record<string, boolean>>(
+    userId ? loadBookCache(userId)?.visibilityById ?? {} : {},
+  );
   recipesRef.current = recipes;
   shoppingRef.current = shoppingList;
   pantryRef.current = pantry;
@@ -174,13 +271,15 @@ export function useRecipeStore(userId?: string) {
 
   const persistCache = useCallback(() => {
     if (!userId) return;
+    const own = recipesRef.current.filter((r) => !isSampleRecipeId(r.recipe.id));
     const cache: BookCache = {
-      recipes: recipesRef.current.filter((r) => !isSampleRecipeId(r.recipe.id)),
+      recipes: applySavedEyes(own, visibilityRef.current),
       shoppingList: shoppingRef.current,
       pantry: pantryRef.current,
       mealPlan: mealPlanRef.current,
       queue: queueRef.current,
       localTouchedAt: touchedRef.current,
+      visibilityById: visibilityRef.current,
     };
     saveBookCache(userId, cache);
   }, [userId]);
@@ -217,13 +316,15 @@ export function useRecipeStore(userId?: string) {
             remaining.push(job);
             continue;
           }
-          await persistFullRecipe(userId, job.recipe);
-        } else if (job.type === 'updateFlags') {
-          const serverAt = await fetchRecipeUpdatedAt(job.recipeId);
-          if (newer(serverAt, job.touchedAt)) {
-            remaining.push(job);
-            continue;
+          const saved = await persistFullRecipe(
+            userId,
+            withLiveVisibility(job.recipe, applySavedEyes(recipesRef.current, visibilityRef.current)),
+          );
+          const liveVisible = visibilityRef.current[saved.recipe.id] ?? saved.recipe.visibleToFriends;
+          if (liveVisible !== saved.recipe.visibleToFriends) {
+            await setRecipeVisible(saved.recipe.id, liveVisible);
           }
+        } else if (job.type === 'updateFlags') {
           await updateRecipeFlags(job.recipeId, job.patch);
         } else if (job.type === 'deleteRecipe') {
           await deleteRemoteRecipe(job.recipeId, userId);
@@ -274,18 +375,29 @@ export function useRecipeStore(userId?: string) {
             enqueue(job);
             return;
           }
-          const saved = await persistFullRecipe(userId, job.recipe);
+          const saved = await persistFullRecipe(
+            userId,
+            withLiveVisibility(
+              job.recipe,
+              applySavedEyes(recipesRef.current, visibilityRef.current),
+            ),
+          );
+          const liveVisible = visibilityRef.current[saved.recipe.id] ?? saved.recipe.visibleToFriends;
+          if (liveVisible !== saved.recipe.visibleToFriends) {
+            await setRecipeVisible(saved.recipe.id, liveVisible);
+          }
           setRecipes((prev) =>
-            prev.map((r) =>
-              r.recipe.id === job.recipe.recipe.id || r.recipe.id === saved.recipe.id ? saved : r,
+            applySavedEyes(
+              prev.map((r) => {
+                if (r.recipe.id !== job.recipe.recipe.id && r.recipe.id !== saved.recipe.id) {
+                  return r;
+                }
+                return saved;
+              }),
+              visibilityRef.current,
             ),
           );
         } else if (job.type === 'updateFlags') {
-          const serverAt = await fetchRecipeUpdatedAt(job.recipeId);
-          if (newer(serverAt, job.touchedAt)) {
-            enqueue(job);
-            return;
-          }
           await updateRecipeFlags(job.recipeId, job.patch);
         } else if (job.type === 'deleteRecipe') {
           await deleteRemoteRecipe(job.recipeId, userId);
@@ -381,12 +493,31 @@ export function useRecipeStore(userId?: string) {
       setMealPlan({ ...EMPTY_MEAL_PLAN, weekStart: mondayISO() });
       queueRef.current = [];
       touchedRef.current = {};
+      visibilityRef.current = {};
       return;
     }
     const cached = loadBookCache(userId) ?? emptyBookCache();
     queueRef.current = cached.queue;
     touchedRef.current = cached.localTouchedAt;
-    setRecipes([...sampleRecipes, ...cached.recipes]);
+    visibilityRef.current = { ...(cached.visibilityById ?? {}) };
+    let cachedOwn = applySavedEyes(cached.recipes, visibilityRef.current);
+    if (!hasOpenedAllEyes(userId)) {
+      const opened = openHiddenOwnRecipes(cachedOwn, visibilityRef.current);
+      cachedOwn = opened.list;
+      if (opened.openedIds.length > 0) {
+        const touchedAt = nowIso();
+        touchedRef.current = { ...touchedRef.current, recipes: touchedAt };
+        for (const recipeId of opened.openedIds) {
+          enqueue({
+            type: 'updateFlags',
+            recipeId,
+            patch: { visibleToFriends: true },
+            touchedAt,
+          });
+        }
+      }
+    }
+    setRecipes([...sampleRecipes, ...cachedOwn]);
     setShoppingList(cached.shoppingList);
     setPantry(cached.pantry);
     setMealPlan(cached.mealPlan);
@@ -404,21 +535,52 @@ export function useRecipeStore(userId?: string) {
         if (cancelled) return;
         const jobs = queueRef.current;
         if (remoteRes.status === 'fulfilled') {
-          let remote = remoteRes.value;
-          if (hasRecipeJobs(jobs)) {
-            setRecipes([...sampleRecipes, ...applyPendingJobs(remote, jobs)]);
-          } else {
-            setRecipes([...sampleRecipes, ...remote]);
+          let remote = applySavedEyes(remoteRes.value, visibilityRef.current);
+          if (!hasOpenedAllEyes(userId)) {
+            const opened = openHiddenOwnRecipes(remote, visibilityRef.current);
+            remote = opened.list;
+            if (opened.openedIds.length > 0) {
+              const touchedAt = nowIso();
+              touchedRef.current = { ...touchedRef.current, recipes: touchedAt };
+              for (const recipeId of opened.openedIds) {
+                enqueue({
+                  type: 'updateFlags',
+                  recipeId,
+                  patch: { visibleToFriends: true },
+                  touchedAt,
+                });
+              }
+            }
+            markOpenedAllEyes(userId);
+          }
+          if (hasRecipeJobs(jobs) || hasRecipeJobs(queueRef.current)) {
+            remote = applyPendingJobs(remote, queueRef.current);
+          }
+          setRecipes([...sampleRecipes, ...remote]);
+          const diffs = visibilityDiffs(remoteRes.value, visibilityRef.current);
+          for (const diff of diffs) {
+            void setRecipeVisible(diff.recipeId, diff.visible).catch((err) => {
+              if (!isQuotaError(err)) {
+                enqueue({
+                  type: 'updateFlags',
+                  recipeId: diff.recipeId,
+                  patch: { visibleToFriends: diff.visible },
+                  touchedAt: nowIso(),
+                });
+              }
+            });
           }
           if (navigator.onLine && remote.some((r) => r.recipe.imageUrl?.startsWith('data:'))) {
             remote = await migrateDataUrlRecipeImages(userId, remote);
             if (cancelled) return;
+            remote = applySavedEyes(remote, visibilityRef.current);
             if (hasRecipeJobs(queueRef.current)) {
-              setRecipes([...sampleRecipes, ...applyPendingJobs(remote, queueRef.current)]);
-            } else {
-              setRecipes([...sampleRecipes, ...remote]);
+              remote = applyPendingJobs(remote, queueRef.current);
             }
+            setRecipes([...sampleRecipes, ...remote]);
           }
+        } else if (!hasOpenedAllEyes(userId) && cached.recipes.length > 0) {
+          markOpenedAllEyes(userId);
         }
         if (planRes.status === 'fulfilled' && !hasJob(jobs, 'persistMealPlan')) {
           skipMeal.current = true;
@@ -455,10 +617,16 @@ export function useRecipeStore(userId?: string) {
       cancelled = true;
       window.removeEventListener('online', onOnline);
     };
-  }, [userId, flushQueue, persistCache]);
+  }, [userId, flushQueue, persistCache, enqueue]);
 
   const addRecipe = useCallback(
     (recipe: FullRecipe) => {
+      if (!isSampleRecipeId(recipe.recipe.id)) {
+        visibilityRef.current = {
+          ...visibilityRef.current,
+          [recipe.recipe.id]: recipe.recipe.visibleToFriends ?? true,
+        };
+      }
       setRecipes((prev) => [...prev, recipe]);
       if (!userId || isSampleRecipeId(recipe.recipe.id)) return;
       touch('recipes');
@@ -486,12 +654,17 @@ export function useRecipeStore(userId?: string) {
 
   const updateRecipe = useCallback(
     (updatedRecipe: FullRecipe) => {
-      setRecipes((prev) =>
-        prev.map((r) => (r.recipe.id === updatedRecipe.recipe.id ? updatedRecipe : r)),
-      );
-      if (!userId || isSampleRecipeId(updatedRecipe.recipe.id)) return;
+      const id = updatedRecipe.recipe.id;
+      const visible = visibilityRef.current[id] ?? updatedRecipe.recipe.visibleToFriends ?? true;
+      visibilityRef.current = { ...visibilityRef.current, [id]: visible };
+      const toSave = {
+        ...updatedRecipe,
+        recipe: { ...updatedRecipe.recipe, visibleToFriends: visible },
+      };
+      setRecipes((prev) => prev.map((r) => (r.recipe.id === id ? toSave : r)));
+      if (!userId || isSampleRecipeId(id)) return;
       touch('recipes');
-      void runRemote({ type: 'persistRecipe', recipe: updatedRecipe, touchedAt: nowIso() });
+      void runRemote({ type: 'persistRecipe', recipe: toSave, touchedAt: nowIso() });
     },
     [userId, runRemote, touch],
   );
@@ -503,11 +676,26 @@ export function useRecipeStore(userId?: string) {
         ...prev,
         entries: prev.entries.filter((e) => e.recipeId !== recipeId),
       }));
+      if (recipeId in visibilityRef.current) {
+        const nextEyes = { ...visibilityRef.current };
+        delete nextEyes[recipeId];
+        visibilityRef.current = nextEyes;
+      }
       if (!userId || isSampleRecipeId(recipeId) || !isUuid(recipeId)) return;
       touch('recipes');
       void runRemote({ type: 'deleteRecipe', recipeId, touchedAt: nowIso() });
     },
     [userId, runRemote, touch],
+  );
+
+  const removeCopiedFromFriend = useCallback(
+    (friendId: string) => {
+      const ids = recipesRef.current
+        .filter((r) => r.recipe.copiedFromUserId === friendId)
+        .map((r) => r.recipe.id);
+      ids.forEach(deleteRecipe);
+    },
+    [deleteRecipe],
   );
 
   const toggleRecipeStatus = useCallback(
@@ -542,23 +730,30 @@ export function useRecipeStore(userId?: string) {
 
   const toggleVisibility = useCallback(
     (recipeId: string) => {
-      let nextVisible = false;
-      setRecipes((prev) => {
-        const next = prev.map((r) => {
-          if (r.recipe.id !== recipeId) return r;
-          nextVisible = !r.recipe.visibleToFriends;
+      const current = recipesRef.current.find((r) => r.recipe.id === recipeId);
+      if (!current || isSampleRecipeId(recipeId)) return;
+      const nextVisible = !current.recipe.visibleToFriends;
+      visibilityRef.current = { ...visibilityRef.current, [recipeId]: nextVisible };
+      setRecipes((prev) =>
+        prev.map((r) =>
+          r.recipe.id === recipeId
+            ? { ...r, recipe: { ...r.recipe, visibleToFriends: nextVisible } }
+            : r,
+        ),
+      );
+      if (userId && isUuid(recipeId)) {
+        touch('recipes');
+        queueRef.current = queueRef.current.map((job) => {
+          if (job.type !== 'persistRecipe' || job.recipe.recipe.id !== recipeId) return job;
           return {
-            ...r,
+            ...job,
             recipe: {
-              ...r.recipe,
-              visibleToFriends: nextVisible,
+              ...job.recipe,
+              recipe: { ...job.recipe.recipe, visibleToFriends: nextVisible },
             },
           };
         });
-        return next;
-      });
-      if (userId && isUuid(recipeId) && !isSampleRecipeId(recipeId)) {
-        touch('recipes');
+        persistCache();
         void runRemote({
           type: 'updateFlags',
           recipeId,
@@ -567,7 +762,7 @@ export function useRecipeStore(userId?: string) {
         });
       }
     },
-    [userId, runRemote, touch],
+    [userId, runRemote, touch, persistCache],
   );
 
   const addToShoppingList = useCallback(
@@ -730,6 +925,7 @@ export function useRecipeStore(userId?: string) {
     copyRecipe,
     updateRecipe,
     deleteRecipe,
+    removeCopiedFromFriend,
     toggleRecipeStatus,
     toggleVisibility,
     addToShoppingList,

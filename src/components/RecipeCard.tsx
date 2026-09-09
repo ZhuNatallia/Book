@@ -33,6 +33,7 @@ interface RecipeCardProps {
 	onToggleMenu?: () => void;
 	inMenu?: boolean;
 	isOwner?: boolean;
+	compact?: boolean;
 }
 
 export function RecipeCard({
@@ -46,6 +47,7 @@ export function RecipeCard({
 	onToggleMenu,
 	inMenu = false,
 	isOwner = true,
+	compact = false,
 }: RecipeCardProps) {
 	const r = recipe.recipe as any;
 	const { language, t, tCategory } = useLanguage();
@@ -73,56 +75,199 @@ export function RecipeCard({
 			description: undefined as string | undefined,
 		};
 
-	return (
+	const photo = showPhoto ? (
+		<img
+			src={recipe.recipe.imageUrl}
+			alt={translation.title}
+			referrerPolicy='no-referrer'
+			className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500'
+			onError={() => setImgFailed(true)}
+		/>
+	) : (
 		<div
-			className={`group relative flex flex-col h-full ${theme.card} overflow-hidden ${
+			className={`w-full h-full flex flex-col items-center justify-center relative ${
+				notebook ? '' : theme.bgPrimary
+			}`}
+		>
+			{!notebook && (
+				<>
+					<div className='absolute top-4 right-4 w-12 h-12 bg-orange-200/50 rounded-full' />
+					<div className='absolute bottom-6 left-6 w-8 h-8 bg-rose-200/50 rounded-full' />
+					<div className='absolute top-1/3 left-1/4 w-6 h-6 bg-amber-200/40 rounded-full' />
+				</>
+			)}
+			<div className='relative'>
+				{recipe.recipe.category === 'pastry' || recipe.recipe.category === 'dessert' ? (
+					<div className='w-16 h-16 bg-gradient-to-br from-amber-200 to-orange-200 rounded-2xl flex items-center justify-center shadow-sm transform rotate-3'>
+						<ChefHat className='w-8 h-8 text-amber-600' />
+					</div>
+				) : recipe.recipe.category === 'soup' ? (
+					<div className='w-16 h-16 bg-gradient-to-br from-rose-200 to-orange-200 rounded-2xl flex items-center justify-center shadow-sm'>
+						<UtensilsCrossed className='w-8 h-8 text-rose-600' />
+					</div>
+				) : (
+					<div className='w-16 h-16 bg-gradient-to-br from-orange-200 to-amber-200 rounded-2xl flex items-center justify-center shadow-sm transform -rotate-2'>
+						<ChefHat className='w-8 h-8 text-orange-600' />
+					</div>
+				)}
+			</div>
+		</div>
+	);
+
+	const iconBtn =
+		'p-1.5 rounded-full backdrop-blur-md border shadow-sm transition-colors';
+
+	const tile = compact && (
+		<div
+			role='button'
+			tabIndex={0}
+			onClick={onView}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					onView();
+				}
+			}}
+			className={`sm:hidden group relative w-full aspect-square overflow-hidden text-left cursor-pointer ${theme.card} ${
+				notebook ? 'notebook-paper' : ''
+			}`}
+		>
+			{photo}
+			<div className='absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1 z-10'>
+				<div className='flex flex-wrap items-center gap-1'>
+					{isOwner && (
+						<button
+							type='button'
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleStatus();
+							}}
+							title={
+								recipe.recipe.status === 'cooked_liked'
+									? t('cookedLiked')
+									: t('wantToCook')
+							}
+							className={`${iconBtn} ${
+								recipe.recipe.status === 'cooked_liked'
+									? 'bg-green-500/80 text-white border-green-400'
+									: 'bg-amber-500/80 text-white border-amber-400'
+							}`}
+						>
+							{recipe.recipe.status === 'cooked_liked' ? (
+								<Heart className='w-3.5 h-3.5 fill-current' />
+							) : (
+								<Clock className='w-3.5 h-3.5' />
+							)}
+						</button>
+					)}
+					{isPersonal && onToggleMenu && (
+						<button
+							type='button'
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleMenu();
+							}}
+							title={inMenu ? t('removeFromMenu') : t('addToMenu')}
+							className={`${iconBtn} ${
+								inMenu
+									? 'bg-orange-500/90 text-white border-orange-300'
+									: 'bg-white/90 text-gray-600 border-white/60'
+							}`}
+						>
+							{inMenu ? (
+								<CalendarCheck className='w-3.5 h-3.5' />
+							) : (
+								<CalendarPlus className='w-3.5 h-3.5' />
+							)}
+						</button>
+					)}
+					{isOwner && !recipe.recipe.id.startsWith('sample-') && (
+						<button
+							type='button'
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleVisibility?.();
+							}}
+							title={
+								recipe.recipe.visibleToFriends
+									? t('visibleToFriends')
+									: t('hiddenFromFriends')
+							}
+							className={`${iconBtn} ${
+								recipe.recipe.visibleToFriends
+									? 'bg-white/90 text-emerald-600 border-emerald-200'
+									: 'bg-white/90 text-gray-500 border-white/60'
+							}`}
+						>
+							{recipe.recipe.visibleToFriends ? (
+								<Eye className='w-3.5 h-3.5' />
+							) : (
+								<EyeOff className='w-3.5 h-3.5' />
+							)}
+						</button>
+					)}
+				</div>
+				{isOwner ? (
+					<div className='flex items-center gap-1'>
+						<button
+							type='button'
+							onClick={(e) => {
+								e.stopPropagation();
+								onEdit();
+							}}
+							title={t('edit')}
+							className={`${iconBtn} bg-white/95 border-white/80`}
+						>
+							<Pencil className='w-3.5 h-3.5 text-gray-700' />
+						</button>
+						<button
+							type='button'
+							onClick={(e) => {
+								e.stopPropagation();
+								if (window.confirm(t('deleteConfirm'))) onDelete();
+							}}
+							title={t('delete')}
+							className={`${iconBtn} bg-white/95 border-white/80`}
+						>
+							<Trash2 className='w-3.5 h-3.5 text-rose-500' />
+						</button>
+					</div>
+				) : onCopy ? (
+					<button
+						type='button'
+						onClick={(e) => {
+							e.stopPropagation();
+							onCopy();
+						}}
+						title={t('saveToMyBook')}
+						className={`${iconBtn} bg-white/95 border-white/80`}
+					>
+						<BookmarkPlus className='w-3.5 h-3.5 text-gray-700' />
+					</button>
+				) : null}
+			</div>
+			<div className='absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/40 to-transparent px-2.5 pt-8 pb-2.5'>
+				<p className='text-white text-sm font-semibold leading-snug line-clamp-2'>
+					{translation.title}
+				</p>
+			</div>
+		</div>
+	);
+
+	return (
+		<>
+			{tile}
+		<div
+			className={`${compact ? 'hidden sm:flex' : 'flex'} group relative flex-col h-full ${theme.card} overflow-hidden ${
 				notebook ? 'notebook-paper' : ''
 			}`}
 		>
 			<div className='relative aspect-[4/3] shrink-0 overflow-hidden'>
-				{showPhoto ? (
-					<img
-						src={recipe.recipe.imageUrl}
-						alt={translation.title}
-						referrerPolicy='no-referrer'
-						className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500'
-						onError={() => setImgFailed(true)}
-					/>
-				) : (
-					<div
-						className={`w-full h-full flex flex-col items-center justify-center relative ${
-							notebook ? '' : theme.bgPrimary
-						}`}
-					>
-						{!notebook && (
-							<>
-						<div className='absolute top-4 right-4 w-12 h-12 bg-orange-200/50 rounded-full' />
-						<div className='absolute bottom-6 left-6 w-8 h-8 bg-rose-200/50 rounded-full' />
-						<div className='absolute top-1/3 left-1/4 w-6 h-6 bg-amber-200/40 rounded-full' />
-							</>
-						)}
-
-						<div className='relative'>
-							{recipe.recipe.category === 'pastry' ||
-							recipe.recipe.category === 'dessert' ? (
-								<div className='w-20 h-20 bg-gradient-to-br from-amber-200 to-orange-200 rounded-2xl flex items-center justify-center shadow-sm transform rotate-3'>
-									<ChefHat className='w-10 h-10 text-amber-600' />
-								</div>
-							) : recipe.recipe.category === 'soup' ? (
-								<div className='w-20 h-20 bg-gradient-to-br from-rose-200 to-orange-200 rounded-2xl flex items-center justify-center shadow-sm'>
-									<UtensilsCrossed className='w-10 h-10 text-rose-600' />
-								</div>
-							) : (
-								<div className='w-20 h-20 bg-gradient-to-br from-orange-200 to-amber-200 rounded-2xl flex items-center justify-center shadow-sm transform -rotate-2'>
-									<ChefHat className='w-10 h-10 text-orange-600' />
-								</div>
-							)}
-						</div>
-
-						<p className={`mt-3 text-xs ${theme.textSecondary} font-medium`}>
-							{t('noPhoto')}
-						</p>
-					</div>
+				{photo}
+				{!showPhoto && (
+					<p className={`absolute bottom-10 left-0 right-0 text-center text-xs ${theme.textSecondary} font-medium`}>
+						{t('noPhoto')}
+					</p>
 				)}
 
 				<div className='absolute top-3 left-3 flex items-center gap-2 z-10'>
@@ -341,6 +486,7 @@ export function RecipeCard({
 				</button>
 			</div>
 		</div>
+		</>
 	);
 }
 

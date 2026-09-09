@@ -113,18 +113,36 @@ export function FridgeSearchView({
           <p className={`text-sm font-semibold ${theme.textPrimary} mb-2`}>{t('pantryTitle')}</p>
           <div className="flex items-center gap-2 mb-2">
             <input
+              type="search"
+              enterKeyHint="search"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') addDraft();
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addDraft();
+                }
               }}
               placeholder={t('searchIngredients')}
               className={`flex-1 px-4 py-3 text-base ${theme.input}`}
             />
-            <button type="button" onClick={addDraft} className={`p-2 ${theme.iconBtn}`}>
+            <button
+              type="button"
+              onClick={addDraft}
+              title={t('add')}
+              className={`p-2 ${theme.iconBtn}`}
+            >
               <Plus className="w-5 h-5" />
             </button>
           </div>
+          <button
+            type="button"
+            onClick={addDraft}
+            className={`w-full mb-3 py-3 ${theme.btnPrimary} font-medium flex items-center justify-center gap-2`}
+          >
+            <Search className="w-5 h-5" />
+            {t('searchAction')}
+          </button>
           <p className={`text-xs ${theme.textSecondary} mb-3`}>{t('fridgeHint')}</p>
           {pantry.length === 0 ? (
             <p className={`text-sm ${theme.textSecondary}`}>{t('pantryEmpty')}</p>

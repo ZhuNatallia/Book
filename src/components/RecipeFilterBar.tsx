@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ListFilter, Refrigerator, Search } from 'lucide-react';
+import { LayoutGrid, LayoutList, ListFilter, Refrigerator, Search } from 'lucide-react';
+import { RecipeLayout } from '../lib/recipeLayout';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { CategoryFilter } from './RecipeCard';
@@ -22,6 +23,8 @@ interface RecipeFilterBarProps {
   onSelectTags?: (tags: string[]) => void;
   sortBy?: RecipeSort;
   onSortChange?: (sort: RecipeSort) => void;
+  layout?: RecipeLayout;
+  onLayoutChange?: (layout: RecipeLayout) => void;
 }
 
 export function RecipeFilterBar({
@@ -38,6 +41,8 @@ export function RecipeFilterBar({
   onSelectTags,
   sortBy = 'newest',
   onSortChange,
+  layout,
+  onLayoutChange,
 }: RecipeFilterBarProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
@@ -100,6 +105,18 @@ export function RecipeFilterBar({
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevOverscroll = document.body.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.overscrollBehavior = prevOverscroll;
+    };
+  }, [open]);
+
   const statuses: { id: RecipeStatusFilter; label: string }[] = [
     { id: 'all', label: t('all') },
     { id: 'cooked_liked', label: t('cookedLiked') },
@@ -131,10 +148,33 @@ export function RecipeFilterBar({
         >
           {t('resetFilters')}
         </button>
+        {onLayoutChange && (
+          <div className="sm:hidden flex shrink-0 overflow-hidden rounded-xl border border-[var(--stroke)]">
+            <button
+              type="button"
+              onClick={() => onLayoutChange('list')}
+              title={t('layoutList')}
+              className={`p-2.5 ${layout === 'list' ? theme.chipActive : theme.chip}`}
+            >
+              <LayoutList className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onLayoutChange('grid')}
+              title={t('layoutGrid')}
+              className={`p-2.5 ${layout === 'grid' ? theme.chipActive : theme.chip}`}
+            >
+              <LayoutGrid className="w-5 h-5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {open && (
-        <div className={`mt-3 p-3 ${theme.card} divide-y divide-[var(--stroke)]`}>
+        <div
+          className={`mt-3 ${theme.card} flex flex-col max-h-[calc(100dvh-15rem)] overflow-hidden`}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y p-3 divide-y divide-[var(--stroke)]">
           <div className="pb-5">
             <p className={`px-1 pb-2 text-sm font-semibold ${theme.textPrimary}`}>
               {t('recipeCategories')}
@@ -236,8 +276,9 @@ export function RecipeFilterBar({
               </button>
             </div>
           )}
+          </div>
 
-          <div className="pt-5 grid grid-cols-2 gap-2">
+          <div className={`shrink-0 p-3 grid grid-cols-2 gap-2 border-t ${theme.border}`}>
             <button
               type="button"
               onClick={resetFilters}

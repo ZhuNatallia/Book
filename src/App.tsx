@@ -19,9 +19,11 @@ import { MealPlanView } from './components/MealPlanView';
 import { useRecipeStore } from './hooks/useRecipeStore';
 import { FullRecipe, RecipeSort } from './types';
 import { useOnline } from './lib/online';
+import { findExistingRecipe } from './lib/recipeMatch';
 import { isPresetShelf } from './data/shelves';
 import { recipeMatchesQuery } from './lib/recipeSearch';
 import { remainingShoppingItems } from './lib/ingredientMerge';
+import { useRecipeLayout } from './lib/recipeLayout';
 import { shouldShowTrialOffer } from './lib/trialOffer';
 import { ChefHat } from 'lucide-react';
 import { TrialOffer } from './components/TrialOffer';
@@ -60,6 +62,7 @@ function AppContent() {
 		copyRecipe,
 		updateRecipe,
 		deleteRecipe,
+		removeCopiedFromFriend,
 		toggleRecipeStatus,
 		toggleVisibility,
 		addToShoppingList,
@@ -89,6 +92,7 @@ function AppContent() {
 	const [statusFilter, setStatusFilter] = useState<RecipeStatusFilter>('all');
 	const [selectedTags, setSelectedTags] = useState<string[]>([]);
 	const [sortBy, setSortBy] = useState<RecipeSort>('newest');
+	const [recipeLayout, setRecipeLayout] = useRecipeLayout();
 	const [editingRecipe, setEditingRecipe] = useState<FullRecipe | null>(null);
 	const [headerCompact, setHeaderCompact] = useState(false);
 	const [openSettingsTo, setOpenSettingsTo] = useState<'plan' | null>(null);
@@ -251,10 +255,22 @@ function AppContent() {
 		setOpenSettingsTo('plan');
 	};
 
-	const handleCopyRecipe = (recipe: FullRecipe) => {
+	const handleCopyRecipe = (recipe: FullRecipe): true | false | 'duplicate' => {
 		if (!canAddRecipe) {
 			openPlanSettings();
 			return false;
+		}
+		const title =
+			recipe.translations.find((tr) => tr.language === language)?.title ||
+			recipe.translations[0]?.title;
+		if (
+			findExistingRecipe(recipes, {
+				sourceUrl: recipe.recipe.sourceUrl,
+				title,
+				imageUrl: recipe.recipe.imageUrl,
+			})
+		) {
+			return 'duplicate';
 		}
 		void copyRecipe(recipe, language);
 		return true;
@@ -318,14 +334,23 @@ function AppContent() {
 								onSelectTags={setSelectedTags}
 								sortBy={sortBy}
 								onSortChange={setSortBy}
+								layout={recipeLayout}
+								onLayoutChange={setRecipeLayout}
 							/>
 						</div>
 
 						{filteredRecipes.length > 0 ? (
-							<div className='px-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'>
+							<div
+								className={`px-4 grid sm:grid-cols-2 lg:grid-cols-3 ${
+									recipeLayout === 'grid'
+										? 'grid-cols-2 gap-2 sm:gap-4'
+										: 'grid-cols-1 gap-4'
+								}`}
+							>
 								{filteredRecipes.map((recipe) => (
 									<RecipeCard
 										key={recipe.recipe.id}
+										compact={recipeLayout === 'grid'}
 										recipe={recipe}
 										onView={() => handleOpenRecipe(recipe)}
 										onEdit={() => {
@@ -400,6 +425,14 @@ function AppContent() {
 						currentUserId={session.user.id}
 						onOpenRecipe={handleOpenRecipe}
 						onCopyRecipe={handleCopyRecipe}
+						onDiscardCopiedFromFriend={(friendId) => {
+							if (selectedRecipe?.recipe.copiedFromUserId === friendId) {
+								handleCloseRecipe();
+							}
+							removeCopiedFromFriend(friendId);
+						}}
+						recipeLayout={recipeLayout}
+						onRecipeLayoutChange={setRecipeLayout}
 					/>
 					) : (
 						<p className={`text-center py-12 ${theme.textSecondary}`}>{t('offlineHint')}</p>

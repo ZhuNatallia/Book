@@ -7,13 +7,17 @@ import { fetchFriendVisibleRecipes } from '../lib/recipeDb';
 import { recipeMatchesQuery } from '../lib/recipeSearch';
 import { RecipeCard } from './RecipeCard';
 import { RecipeFilterBar, RecipeStatusFilter } from './RecipeFilterBar';
+import { RecipeLayout } from '../lib/recipeLayout';
 import { AvatarBox } from './ProfileSettings';
-import { UserPlus, Users, ArrowLeft, Loader2, Pencil, Search } from 'lucide-react';
+import { UserPlus, Users, ArrowLeft, Loader2, Pencil, Search, Trash2 } from 'lucide-react';
 
 interface FriendsViewProps {
   currentUserId: string;
   onOpenRecipe: (recipe: FullRecipe) => void;
-  onCopyRecipe: (recipe: FullRecipe) => boolean;
+  onCopyRecipe: (recipe: FullRecipe) => true | false | 'duplicate';
+  onDiscardCopiedFromFriend: (friendId: string) => void;
+  recipeLayout: RecipeLayout;
+  onRecipeLayoutChange: (layout: RecipeLayout) => void;
 }
 
 function friendLabel(friend: FriendProfile) {
@@ -33,7 +37,14 @@ function friendSubtitle(friend: FriendProfile, label: string) {
   return '';
 }
 
-export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: FriendsViewProps) {
+export function FriendsView({
+  currentUserId,
+  onOpenRecipe,
+  onCopyRecipe,
+  onDiscardCopiedFromFriend,
+  recipeLayout,
+  onRecipeLayoutChange,
+}: FriendsViewProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
   const [friends, setFriends] = useState<FriendProfile[]>([]);
@@ -53,6 +64,9 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
   const [pendingName, setPendingName] = useState('');
   const [editingFriendId, setEditingFriendId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [removingFriend, setRemovingFriend] = useState<FriendProfile | null>(null);
+  const [removeStep, setRemoveStep] = useState<'confirm' | 'keep'>('confirm');
+  const [removing, setRemoving] = useState(false);
 
   const filteredFriends = useMemo(() => {
     const q = friendSearch.trim().toLowerCase();
@@ -229,9 +243,98 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
 
   const inputCls = `w-full px-4 py-3 text-base ${theme.input}`;
 
+  const startRemoveFriend = (friend: FriendProfile) => {
+    setError(null);
+    setRemovingFriend(friend);
+    setRemoveStep('confirm');
+  };
+
+  const finishRemoveFriend = async (keepCopies: boolean) => {
+    if (!removingFriend || removing) return;
+    setRemoving(true);
+    setError(null);
+    const friendId = removingFriend.id;
+    const { error: removeError } = await supabase.rpc('remove_friend', {
+      target: friendId,
+      keep_copies: keepCopies,
+    });
+    setRemoving(false);
+    if (removeError) {
+      setError(t('removeFriendError'));
+      return;
+    }
+    if (!keepCopies) onDiscardCopiedFromFriend(friendId);
+    setFriends((prev) => prev.filter((f) => f.id !== friendId));
+    setRemovingFriend(null);
+    if (selectedFriend?.id === friendId) {
+      setSelectedFriend(null);
+      setFriendRecipes([]);
+    }
+    setMessage(t('friendRemoved'));
+  };
+
+  const removeDialog = removingFriend ? (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4"
+      onClick={() => {
+        if (!removing) setRemovingFriend(null);
+      }}
+    >
+      <div
+        className={`${theme.modalBg} w-full max-w-sm rounded-2xl p-5 border ${theme.modalBorder}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className={`text-base font-medium ${theme.textPrimary} mb-4`}>
+          {removeStep === 'confirm' ? t('removeFriendConfirm') : t('removeFriendKeepCopies')}
+        </p>
+        {error && removeStep === 'keep' && (
+          <p className="text-sm text-rose-500 mb-3">{error}</p>
+        )}
+        {removeStep === 'confirm' ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setRemoveStep('keep')}
+              className={`flex-1 py-2.5 ${theme.btnPrimary} text-base font-medium`}
+            >
+              {t('removeFriendYes')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRemovingFriend(null)}
+              className={`flex-1 py-2.5 ${theme.btnSoft} ${theme.textPrimary} text-base font-medium`}
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={removing}
+              onClick={() => void finishRemoveFriend(true)}
+              className={`flex-1 py-2.5 ${theme.btnPrimary} text-base font-medium disabled:opacity-50 flex items-center justify-center gap-2`}
+            >
+              {removing ? <Loader2 className="w-4 h-4 animate-spin" /> : t('removeFriendYes')}
+            </button>
+            <button
+              type="button"
+              disabled={removing}
+              onClick={() => void finishRemoveFriend(false)}
+              className={`flex-1 py-2.5 ${theme.btnSoft} ${theme.textPrimary} text-base font-medium disabled:opacity-50 flex items-center justify-center gap-2`}
+            >
+              {removing ? <Loader2 className="w-4 h-4 animate-spin" /> : t('removeFriendNo')}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   if (selectedFriend) {
     const name = friendLabel(selectedFriend) || t('friends');
     return (
+    <>
       <div className="px-4">
         <button
           onClick={() => {
@@ -251,7 +354,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
             label={name}
             gradient={theme.headerLogoGradient}
           />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className={`text-xl font-bold ${theme.textPrimary} truncate`}>{name}</h2>
             {friendSubtitle(selectedFriend, name) && (
               <p className={`text-sm ${theme.textSecondary} truncate`}>
@@ -259,6 +362,14 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
               </p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => startRemoveFriend(selectedFriend)}
+            title={t('removeFriend')}
+            className={`p-3 rounded-xl text-rose-500 hover:bg-rose-50`}
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
         </div>
         <p className={`text-base ${theme.textSecondary} mb-4`}>{t('friendRecipes')}</p>
         {message && <p className="text-sm text-green-600 mb-3">{message}</p>}
@@ -276,13 +387,22 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                 onSelectStatus={setFriendStatus}
                 searchQuery={friendRecipeSearch}
                 onSearchChange={setFriendRecipeSearch}
+                layout={recipeLayout}
+                onLayoutChange={onRecipeLayoutChange}
               />
             </div>
             {filteredFriendRecipes.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div
+                className={`grid sm:grid-cols-2 lg:grid-cols-3 ${
+                  recipeLayout === 'grid'
+                    ? 'grid-cols-2 gap-2 sm:gap-4'
+                    : 'grid-cols-1 gap-4'
+                }`}
+              >
                 {filteredFriendRecipes.map((recipe) => (
                   <RecipeCard
                     key={recipe.recipe.id}
+                    compact={recipeLayout === 'grid'}
                     recipe={recipe}
                     isOwner={false}
                     onView={() => onOpenRecipe(recipe)}
@@ -290,7 +410,9 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                     onDelete={() => undefined}
                     onToggleStatus={() => undefined}
                     onCopy={() => {
-                      if (onCopyRecipe(recipe)) setMessage(t('savedToMyBook'));
+                      const result = onCopyRecipe(recipe);
+                      if (result === 'duplicate') setMessage(t('recipeAlreadyExists'));
+                      else if (result) setMessage(t('savedToMyBook'));
                     }}
                   />
                 ))}
@@ -301,6 +423,8 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
           </>
         )}
       </div>
+      {removeDialog}
+    </>
     );
   }
 
@@ -457,9 +581,17 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
                           setEditingName(friend.nickname || friend.displayName || (friend.username ? `@${friend.username}` : ''));
                         }}
                         title={t('editFriendName')}
-                        className={`p-3 mr-2 rounded-xl ${theme.textSecondary} hover:bg-gray-50`}
+                        className={`p-3 rounded-xl ${theme.textSecondary} hover:bg-gray-50`}
                       >
                         <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startRemoveFriend(friend)}
+                        title={t('removeFriend')}
+                        className="p-3 mr-2 rounded-xl text-rose-500 hover:bg-rose-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   )}
@@ -469,6 +601,7 @@ export function FriendsView({ currentUserId, onOpenRecipe, onCopyRecipe }: Frien
           </ul>
         )}
       </div>
+      {removeDialog}
     </div>
   );
 }

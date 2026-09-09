@@ -58,6 +58,7 @@ type RecipeRow = {
   notes: string | null;
   last_cooked_at: string | null;
   tags: string[] | null;
+  copied_from_user_id?: string | null;
   created_at: string;
   updated_at: string;
   recipe_translations: TranslationRow[] | null;
@@ -137,10 +138,11 @@ export function mapRowToFullRecipe(row: RecipeRow): FullRecipe {
       protein: num(row.protein_per_serving),
       fat: num(row.fat_per_serving),
       carbs: num(row.carbs_per_serving),
-      visibleToFriends: row.visible_to_friends ?? false,
+      visibleToFriends: row.visible_to_friends ?? true,
       notes: row.notes ?? undefined,
       lastCookedAt: row.last_cooked_at ?? undefined,
       tags: row.tags ?? [],
+      copiedFromUserId: row.copied_from_user_id ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     },
@@ -197,8 +199,9 @@ export function cloneRecipeForUser(full: FullRecipe, userId: string): FullRecipe
       ...full.recipe,
       id: recipeId,
       userId,
+      copiedFromUserId: full.recipe.userId,
       status: 'want_to_cook',
-      visibleToFriends: false,
+      visibleToFriends: true,
       notes: undefined,
       lastCookedAt: undefined,
       tags: [],
@@ -296,6 +299,8 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
   const r = full.recipe;
   const imageUrl = await resolveRecipeImageForDb(userId, recipeId, r.imageUrl);
 
+  const visibleToFriends = r.visibleToFriends ?? true;
+
   const { error: recipeError } = await supabase.from('recipes').upsert({
     id: recipeId,
     user_id: userId,
@@ -308,13 +313,28 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
     protein_per_serving: parseFiniteInput(r.protein) ?? null,
     carbs_per_serving: parseFiniteInput(r.carbs) ?? null,
     fat_per_serving: parseFiniteInput(r.fat) ?? null,
-    visible_to_friends: r.visibleToFriends ?? false,
+    visible_to_friends: visibleToFriends,
     notes: r.notes || null,
     last_cooked_at: r.lastCookedAt || null,
     tags: r.tags ?? [],
     updated_at: now,
+    ...(r.copiedFromUserId ? { copied_from_user_id: r.copiedFromUserId } : {}),
   });
   if (recipeError) throw recipeError;
+
+  const { data: confirmed, error: visibleError } = await supabase
+    .from('recipes')
+    .update({ visible_to_friends: visibleToFriends, updated_at: now })
+    .eq('id', recipeId)
+    .select('id, visible_to_friends')
+    .maybeSingle();
+  if (visibleError || !confirmed) {
+    try {
+      await setRecipeVisible(recipeId, visibleToFriends);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   for (const tr of full.translations) {
     const { error } = await supabase.from('recipe_translations').upsert(
@@ -412,7 +432,7 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
       id: recipeId,
       userId,
       imageUrl: imageUrl ?? undefined,
-      visibleToFriends: r.visibleToFriends ?? false,
+      visibleToFriends,
       notes: r.notes,
       lastCookedAt: r.lastCookedAt,
       tags: r.tags ?? [],
@@ -432,15 +452,42 @@ export type RecipeFlagPatch = {
   tags?: string[];
 };
 
+export async function setRecipeVisible(recipeId: string, visible: boolean) {
+  const { error: rpcError } = await supabase.rpc('set_recipe_visible', {
+    recipe_id: recipeId,
+    visible,
+  });
+  if (!rpcError) return visible;
+
+  const { data, error } = await supabase
+    .from('recipes')
+    .update({ visible_to_friends: visible, updated_at: new Date().toISOString() })
+    .eq('id', recipeId)
+    .select('id, visible_to_friends')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw rpcError;
+  return data.visible_to_friends ?? visible;
+}
+
 export async function updateRecipeFlags(recipeId: string, patch: RecipeFlagPatch) {
+  if (patch.visibleToFriends !== undefined) {
+    await setRecipeVisible(recipeId, patch.visibleToFriends);
+  }
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.status !== undefined) row.status = patch.status;
-  if (patch.visibleToFriends !== undefined) row.visible_to_friends = patch.visibleToFriends;
   if (patch.lastCookedAt !== undefined) row.last_cooked_at = patch.lastCookedAt;
   if (patch.notes !== undefined) row.notes = patch.notes;
   if (patch.tags !== undefined) row.tags = patch.tags;
-  const { error } = await supabase.from('recipes').update(row).eq('id', recipeId);
+  if (Object.keys(row).length === 1) return;
+  const { data, error } = await supabase
+    .from('recipes')
+    .update(row)
+    .eq('id', recipeId)
+    .select('id')
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error('recipe_flag_update_empty');
 }
 
 export async function deleteRemoteRecipe(recipeId: string, userId?: string) {

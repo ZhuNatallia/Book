@@ -9,7 +9,7 @@ import { ShelfPicker } from './ShelfPicker';
 import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
 import { compressImageFile } from '../lib/media';
 import { useOnline } from '../lib/online';
-import { normalizeSourceUrl } from '../lib/urlNorm';
+import { findExistingRecipe } from '../lib/recipeMatch';
 import { usePlan } from '../i18n/PlanContext';
 import { isQuotaError } from '../lib/plan';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle, Mic } from 'lucide-react';
@@ -164,6 +164,50 @@ function parseIngredientString(raw: string): { quantity: number; unit: string; n
   return { quantity: 1, unit: 'pcs', name: text };
 }
 
+function ingredientKey(ing: ParsedRecipe['ingredients'][number]) {
+  return `${ing.quantity}|${ing.unit}|${ing.name.trim().toLowerCase()}`;
+}
+
+function mergeParsedRecipes(base: ParsedRecipe, extra: ParsedRecipe): ParsedRecipe {
+  const seenIng = new Set(base.ingredients.map(ingredientKey));
+  const ingredients = [...base.ingredients];
+  for (const ing of extra.ingredients) {
+    const key = ingredientKey(ing);
+    if (!seenIng.has(key)) {
+      seenIng.add(key);
+      ingredients.push(ing);
+    }
+  }
+  const seenStep = new Set(base.steps.map((step) => step.instruction.trim().toLowerCase()));
+  const steps = [...base.steps];
+  for (const step of extra.steps) {
+    const key = step.instruction.trim().toLowerCase();
+    if (key && !seenStep.has(key)) {
+      seenStep.add(key);
+      steps.push(step);
+    }
+  }
+  const extraHasFullerLists =
+    extra.ingredients.length >= base.ingredients.length && extra.steps.length >= base.steps.length;
+  return {
+    ...base,
+    title: extra.title || base.title,
+    description: extra.description || base.description,
+    category: extra.category || base.category,
+    servings: extra.servings || base.servings,
+    ingredients: extraHasFullerLists && extra.ingredients.length ? extra.ingredients : ingredients,
+    steps: extraHasFullerLists && extra.steps.length ? extra.steps : steps,
+    imageUrl: base.imageUrl || extra.imageUrl,
+    calories: extra.calories || base.calories,
+    protein: extra.protein || base.protein,
+    fat: extra.fat || base.fat,
+    carbs: extra.carbs || base.carbs,
+    sourceLang: extra.sourceLang || base.sourceLang,
+    translated: extra.translated || base.translated,
+    note: extra.note,
+  };
+}
+
 function formatPriorRecipe(parsed: ParsedRecipe): string {
   const lines: string[] = [];
   if (parsed.title) lines.push(parsed.title);
@@ -192,6 +236,7 @@ const IMPORT_NOTE_KEYS: Record<string, string> = {
   partial_social: 'notePartialSocial',
   social_truncated: 'noteSocialTruncated',
   partial_screenshot: 'noteScreenshotEmpty',
+  screenshot_no_steps: 'noteScreenshotNoSteps',
 };
 
 export function AddRecipeModal({
@@ -222,6 +267,7 @@ export function AddRecipeModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
   const screenshotContinueRef = useRef(false);
+  const skipDuplicateRef = useRef(false);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -253,7 +299,8 @@ export function AddRecipeModal({
     setSteps([{ instruction: '', timerMinutes: '' }]);
     setImportUrl(''); setParseResults([]); setSelectedParsed([]); setParseError(null); setLoadingPlatform('');
     setImportingStep(0); setImageUrl(undefined); setIsCompressing(false); setActiveTab('manual');
-    setNotes(''); setTags([]);
+    setNotes(''); setTags([]); setDuplicateRecipe(null);
+    skipDuplicateRef.current = false;
   };
 
   // Populate form from editingRecipe when modal opens; reset when opening for a new recipe
@@ -449,8 +496,8 @@ export function AddRecipeModal({
         carbs?: string;
       }>;
     },
-    extras?: { keepCover?: string; keepTitle?: string },
-  ) => {
+    extras?: { keepCover?: string; keepTitle?: string; mergeWith?: ParsedRecipe; continued?: boolean },
+  ): ParsedRecipe[] => {
     const toParsed = (item: NonNullable<typeof data.recipes>[number]): ParsedRecipe => {
       const parsedSteps: { instruction: string; timerMinutes?: number }[] =
         (item.instructions ?? []).map((instr: string) => {
@@ -481,13 +528,34 @@ export function AddRecipeModal({
       };
     };
 
-    const list: ParsedRecipe[] = Array.isArray(data.recipes) && data.recipes.length
+    let list: ParsedRecipe[] = Array.isArray(data.recipes) && data.recipes.length
       ? data.recipes.map(toParsed)
       : [toParsed(data)];
+
+    if (extras?.mergeWith && list[0]) {
+      list = [mergeParsedRecipes(extras.mergeWith, list[0]), ...list.slice(1)];
+    }
+    if (extras?.continued && list[0] && list[0].steps.length === 0) {
+      list = [{ ...list[0], note: 'screenshot_no_steps' }, ...list.slice(1)];
+    }
 
     setParseResults(list);
     setSelectedParsed(list.map(() => true));
     setImageUrl(list[0]?.imageUrl || extras?.keepCover);
+    if (!skipDuplicateRef.current) {
+      const found = list
+        .map((parsed) =>
+          findExistingRecipe(existingRecipes, {
+            sourceUrl: importUrl.trim() || undefined,
+            title: parsed.title,
+            imageUrl: parsed.imageUrl,
+            excludeId: editingRecipe?.recipe.id,
+          }),
+        )
+        .find(Boolean);
+      setDuplicateRecipe(found ?? null);
+    }
+    return list;
   };
 
   const handleImportUrl = async (ignoreDuplicate = false) => {
@@ -501,14 +569,13 @@ export function AddRecipeModal({
       return;
     }
     const url = importUrl.trim();
-    if (!ignoreDuplicate) {
-      const normalized = normalizeSourceUrl(url);
-      const found = existingRecipes.find(
-        (r) =>
-          r.recipe.id !== editingRecipe?.recipe.id &&
-          r.recipe.sourceUrl &&
-          normalizeSourceUrl(r.recipe.sourceUrl) === normalized,
-      );
+    if (ignoreDuplicate) skipDuplicateRef.current = true;
+    else skipDuplicateRef.current = false;
+    if (!skipDuplicateRef.current) {
+      const found = findExistingRecipe(existingRecipes, {
+        sourceUrl: url,
+        excludeId: editingRecipe?.recipe.id,
+      });
       if (found) {
         setDuplicateRecipe(found);
         return;
@@ -561,9 +628,9 @@ export function AddRecipeModal({
   };
 
   const handleScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []).filter((file) => file.type.startsWith('image/'));
     if (screenshotInputRef.current) screenshotInputRef.current.value = '';
-    if (!file || !file.type.startsWith('image/')) return;
+    if (!files.length) return;
     if (!canImport) {
       onNeedPlan?.();
       return;
@@ -575,44 +642,58 @@ export function AddRecipeModal({
 
     setDuplicateRecipe(null);
     setParseError(null);
-    setIsCompressing(true);
-    let dataUrl: string;
-    try {
-      dataUrl = await compressImageFile(file, 800, 0.5);
-    } catch {
-      setIsCompressing(false);
-      setParseError(t('importScreenshotFailed'));
-      return;
-    }
-    setIsCompressing(false);
 
     const keepCover = (imageUrl?.startsWith('http') ? imageUrl : undefined)
       || (parseResults[0]?.imageUrl?.startsWith('http') ? parseResults[0].imageUrl : undefined);
-    const keepTitle = parseResults[0]?.title;
     const existing = parseResults[0];
     const continueFrom = screenshotContinueRef.current
       && existing
       && (existing.ingredients.length > 0 || existing.steps.length > 0);
     screenshotContinueRef.current = false;
+    if (!continueFrom) skipDuplicateRef.current = false;
 
+    let prior = continueFrom ? existing : undefined;
+    let recorded = continueFrom;
     setLoadingPlatform('screenshot');
     setIsParsing(true);
     setImportingStep(3);
+
     try {
-      const { data, error } = await supabase.functions.invoke('parse-recipe', {
-        body: {
-          image: dataUrl,
-          lang: language,
-          ...(continueFrom ? { priorText: formatPriorRecipe(existing) } : {}),
-        },
-      });
-      if (error || data?.error) throw new Error(error?.message ?? data?.error);
-      applyParseData(data, { keepCover, keepTitle });
-      if (!continueFrom) {
+      for (let i = 0; i < files.length; i++) {
+        setIsCompressing(true);
+        let dataUrl: string;
         try {
-          await recordImport();
-        } catch (err) {
-          if (!isQuotaError(err)) console.error(err);
+          dataUrl = await compressImageFile(files[i], 800, 0.5);
+        } catch {
+          setIsCompressing(false);
+          setParseError(t('importScreenshotFailed'));
+          return;
+        }
+        setIsCompressing(false);
+
+        const mergeThis = Boolean(prior);
+        const { data, error } = await supabase.functions.invoke('parse-recipe', {
+          body: {
+            image: dataUrl,
+            lang: language,
+            ...(mergeThis ? { priorText: formatPriorRecipe(prior!) } : {}),
+          },
+        });
+        if (error || data?.error) throw new Error(error?.message ?? data?.error);
+        const list = applyParseData(data, {
+          keepCover,
+          keepTitle: prior?.title,
+          mergeWith: prior,
+          continued: mergeThis,
+        });
+        prior = list[0];
+        if (!recorded) {
+          try {
+            await recordImport();
+          } catch (err) {
+            if (!isQuotaError(err)) console.error(err);
+          }
+          recorded = true;
         }
       }
     } catch (e: unknown) {
@@ -621,6 +702,7 @@ export function AddRecipeModal({
       setParseError(timedOut ? t('importTimedOut') : msg);
     } finally {
       setIsParsing(false);
+      setIsCompressing(false);
       setImportingStep(0);
       setLoadingPlatform('');
     }
@@ -676,7 +758,7 @@ export function AddRecipeModal({
         protein: parseFiniteInput(parsed.protein),
         fat: parseFiniteInput(parsed.fat),
         carbs: parseFiniteInput(parsed.carbs),
-        visibleToFriends: false,
+        visibleToFriends: true,
         notes: undefined,
         tags,
         createdAt: now,
@@ -715,6 +797,21 @@ export function AddRecipeModal({
   const saveSelectedParsed = () => {
     const chosen = parseResults.filter((_, idx) => selectedParsed[idx]);
     if (!chosen.length) return;
+    if (!skipDuplicateRef.current) {
+      const found = chosen
+        .map((parsed) =>
+          findExistingRecipe(existingRecipes, {
+            sourceUrl: importUrl.trim() || undefined,
+            title: parsed.title,
+            imageUrl: parsed.imageUrl,
+          }),
+        )
+        .find(Boolean);
+      if (found) {
+        setDuplicateRecipe(found);
+        return;
+      }
+    }
     const room = recipeLimit == null ? chosen.length : Math.max(0, recipeLimit - recipeCount);
     if (room <= 0) {
       onNeedPlan?.();
@@ -732,6 +829,18 @@ export function AddRecipeModal({
       onNeedPlan?.();
       return;
     }
+    if (!isEditMode && !skipDuplicateRef.current) {
+      const found = findExistingRecipe(existingRecipes, {
+        sourceUrl: sourceUrl || importUrl.trim() || undefined,
+        title,
+        imageUrl,
+        excludeId: editingRecipe?.recipe.id,
+      });
+      if (found) {
+        setDuplicateRecipe(found);
+        return;
+      }
+    }
     const recipeId = editingRecipe?.recipe.id || crypto.randomUUID();
     const now = new Date().toISOString();
     const servingsNum = parseFiniteInput(servings) || 1;
@@ -748,11 +857,12 @@ export function AddRecipeModal({
         protein: parseFiniteInput(protein),
         fat: parseFiniteInput(fat),
         carbs: parseFiniteInput(carbs),
-        visibleToFriends: editingRecipe?.recipe.visibleToFriends ?? false,
+        visibleToFriends: editingRecipe?.recipe.visibleToFriends ?? true,
         notes: notes.trim() || undefined,
         lastCookedAt: editingRecipe?.recipe.lastCookedAt,
         tags,
         userId: editingRecipe?.recipe.userId,
+        copiedFromUserId: editingRecipe?.recipe.copiedFromUserId,
         createdAt: editingRecipe?.recipe.createdAt || now,
         updatedAt: now,
       },
@@ -854,6 +964,29 @@ export function AddRecipeModal({
         <div className="flex-1 overflow-y-auto p-4">
           {(isEditMode || activeTab === 'manual') ? (
             <div className="space-y-4">
+              {/* Title */}
+              <div>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('title')}</label>
+                <input type="text" value={title} onChange={(e) => setTitle(capitalizeFirst(e.target.value))} className={inputCls} placeholder={t('titlePlaceholder')} />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('description')}</label>
+                <textarea value={description} onChange={(e) => setDescription(capitalizeFirst(e.target.value))} rows={2} className={inputCls} placeholder={t('descriptionPlaceholder')} />
+              </div>
+
+              <div>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('category')}</label>
+                <ThemedSelect
+                  value={category}
+                  onChange={setCategory}
+                  placeholder={t('selectCategory')}
+                  className={inputCls}
+                  options={RECIPE_CATEGORIES.map((cat) => ({ value: cat, label: tCategory(cat) }))}
+                />
+              </div>
+
               {/* Image */}
               <div>
                 <label className={`block text-base font-medium ${theme.label} mb-2`}>
@@ -890,18 +1023,6 @@ export function AddRecipeModal({
                 )}
               </div>
 
-              {/* Title */}
-              <div>
-                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('title')}</label>
-                <input type="text" value={title} onChange={(e) => setTitle(capitalizeFirst(e.target.value))} className={inputCls} placeholder={t('titlePlaceholder')} />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('description')}</label>
-                <textarea value={description} onChange={(e) => setDescription(capitalizeFirst(e.target.value))} rows={2} className={inputCls} placeholder={t('descriptionPlaceholder')} />
-              </div>
-
               {showPersonalFields && (
               <div>
                 <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('myNotes')}</label>
@@ -922,22 +1043,10 @@ export function AddRecipeModal({
                 <input type="url" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} className={inputCls} placeholder="https://..." />
               </div>
 
-              {/* Category & Servings */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('category')}</label>
-                  <ThemedSelect
-                    value={category}
-                    onChange={setCategory}
-                    placeholder={t('selectCategory')}
-                    className={inputCls}
-                    options={RECIPE_CATEGORIES.map((cat) => ({ value: cat, label: tCategory(cat) }))}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('servings')}</label>
-                  <input type="text" value={servings} onChange={(e) => setServings(e.target.value)} className={inputCls} placeholder={t('servingsPlaceholder')} />
-                </div>
+              {/* Servings */}
+              <div>
+                <label className={`block text-base font-medium ${theme.label} mb-1`}>{t('servings')}</label>
+                <input type="text" value={servings} onChange={(e) => setServings(e.target.value)} className={inputCls} placeholder={t('servingsPlaceholder')} />
               </div>
 
               {/* Nutrition (КБЖУ) */}
@@ -1066,27 +1175,6 @@ export function AddRecipeModal({
                   <Download className="w-5 h-5" />
                   {t('importAction')}
                 </button>
-                {duplicateRecipe && (
-                  <div className={`mt-3 p-3 rounded-xl ${theme.bgSecondary}`}>
-                    <p className={`text-sm ${theme.textPrimary} mb-2`}>{t('recipeAlreadyExists')}</p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className={`flex-1 py-2 text-sm font-medium ${theme.btnPrimary}`}
-                        onClick={() => onOpenExisting?.(duplicateRecipe)}
-                      >
-                        {t('openExisting')}
-                      </button>
-                      <button
-                        type="button"
-                        className={`flex-1 py-2 text-sm font-medium ${theme.chip}`}
-                        onClick={() => void handleImportUrl(true)}
-                      >
-                        {t('continueImport')}
-                      </button>
-                    </div>
-                  </div>
-                )}
                 {!canImport && (
                   <p className={`mt-2 text-sm ${theme.textSecondary}`}>
                     {t('planLimitImports')}{' '}
@@ -1115,6 +1203,7 @@ export function AddRecipeModal({
                   ref={screenshotInputRef}
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   onChange={(e) => void handleScreenshotUpload(e)}
                   disabled={isParsing || isCompressing}
@@ -1301,10 +1390,10 @@ export function AddRecipeModal({
                         <span className="text-xs text-gray-500 uppercase tracking-wide">{t('ingredients')}</span>
                         <ul className="mt-1 space-y-1">
                           {parseResult.ingredients.map((ing, idx) => (
-                            <li key={idx} className="text-sm text-gray-700 flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 bg-orange-400 rounded-full" />
-                              <span className={`font-semibold ${theme.textAccent}`}>{ing.quantity} {unitLabel(ing.unit)}</span>
-                              <span>{ing.name}</span>
+                            <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                              <span className="w-1.5 h-1.5 mt-1.5 bg-orange-400 rounded-full shrink-0" />
+                              <span className={`font-semibold ${theme.textAccent} whitespace-nowrap shrink-0`}>{ing.quantity}&nbsp;{unitLabel(ing.unit)}</span>
+                              <span className="min-w-0 break-words">{ing.name}</span>
                             </li>
                           ))}
                         </ul>
@@ -1344,7 +1433,34 @@ export function AddRecipeModal({
         </div>
 
         {/* Footer */}
-        <div className={`p-4 border-t ${theme.border} ${theme.bgSecondary}`}>
+        <div className={`p-4 border-t ${theme.border} ${theme.bgSecondary} space-y-3`}>
+          {duplicateRecipe && (
+            <div className={`p-3 rounded-xl ${theme.card}`}>
+              <p className={`text-sm ${theme.textPrimary} mb-2`}>{t('recipeAlreadyExists')}</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={`flex-1 py-2 text-sm font-medium ${theme.btnPrimary}`}
+                  onClick={() => onOpenExisting?.(duplicateRecipe)}
+                >
+                  {t('openExisting')}
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-2 text-sm font-medium ${theme.chip}`}
+                  onClick={() => {
+                    skipDuplicateRef.current = true;
+                    setDuplicateRecipe(null);
+                    if (activeTab === 'ai' && importUrl.trim() && parseResults.length === 0) {
+                      void handleImportUrl(true);
+                    }
+                  }}
+                >
+                  {t('continueImport')}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex gap-3">
             <button onClick={onClose} className={`flex-1 py-2.5 ${theme.inputBg} ${theme.inputText} border ${theme.inputBorder} rounded-xl font-medium transition-colors`}>
               {t('cancel')}

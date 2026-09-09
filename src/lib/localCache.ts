@@ -35,6 +35,7 @@ export interface BookCache {
   mealPlan: MealPlan;
   queue: SyncJob[];
   localTouchedAt: LocalTouchedAt;
+  visibilityById?: Record<string, boolean>;
 }
 
 export const EMPTY_MEAL_PLAN: MealPlan = {
@@ -69,6 +70,10 @@ export function loadBookCache(userId: string): BookCache | null {
       mealPlan: normalizePlan(parsed.mealPlan),
       queue: Array.isArray(parsed.queue) ? parsed.queue : [],
       localTouchedAt: parsed.localTouchedAt ?? {},
+      visibilityById:
+        parsed.visibilityById && typeof parsed.visibilityById === 'object'
+          ? parsed.visibilityById
+          : {},
     };
   } catch {
     return null;
@@ -107,5 +112,6 @@ export function emptyBookCache(): BookCache {
     mealPlan: { ...EMPTY_MEAL_PLAN, weekStart: mondayISO() },
     queue: [],
     localTouchedAt: {},
+    visibilityById: {},
   };
 }

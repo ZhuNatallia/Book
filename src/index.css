@@ -552,7 +552,7 @@ html[data-theme='dark'] {
 
 .notebook-ing {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 10px;
   padding: 0 2px;
   min-height: 32px;
@@ -568,7 +568,7 @@ html[data-theme='dark'] {
 
 .notebook-ing input[type='checkbox'] {
   flex-shrink: 0;
-  margin-top: 8px;
+  margin-top: 3px;
   accent-color: #2c4a78;
 }
 
@@ -601,5 +601,5 @@ html[data-theme='dark'] {
 
 .notebook-qty {
   flex-shrink: 0;
-  min-width: 4.5rem;
+  white-space: nowrap;
 }

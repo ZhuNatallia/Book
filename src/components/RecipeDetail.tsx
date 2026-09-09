@@ -5,7 +5,7 @@ import { FullRecipe } from '../types';
 import { ShelfPicker } from './ShelfPicker';
 import { hasMomsShelf } from '../data/shelves';
 import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
-import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2 } from 'lucide-react';
+import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2, AlertCircle } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -48,7 +48,7 @@ interface RecipeDetailProps {
 	onAddToShoppingList: (name: string, qty: number, unit: string) => void;
 	onUpdate?: (recipe: FullRecipe) => void;
 	readOnly?: boolean;
-	onCopy?: () => boolean | void;
+	onCopy?: () => boolean | 'duplicate' | void;
 	extraTags?: string[];
 }
 
@@ -74,7 +74,7 @@ export function RecipeDetail({
 		new Set(),
 	);
 	const [addedToList, setAddedToList] = useState(false);
-	const [copiedToBook, setCopiedToBook] = useState(false);
+	const [copiedToBook, setCopiedToBook] = useState<'saved' | 'duplicate' | null>(null);
 	const isPersonal = !readOnly && !isSampleRecipeId(recipe.recipe.id);
 	const notebook = momsPaper && hasMomsShelf(recipe.recipe.tags);
 	const [notes, setNotes] = useState(recipe.recipe.notes || '');
@@ -394,19 +394,26 @@ export function RecipeDetail({
 				{readOnly && onCopy && (
 				<button
 					onClick={() => {
-						if (onCopy?.() === false) return;
-						setCopiedToBook(true);
-						window.setTimeout(() => setCopiedToBook(false), 2500);
+						const result = onCopy?.();
+						if (result === false) return;
+						setCopiedToBook(result === 'duplicate' ? 'duplicate' : 'saved');
+						window.setTimeout(() => setCopiedToBook(null), 2500);
 					}}
 					className='z-10 absolute top-4 right-4 max-w-[calc(100%-5rem)] px-3 py-2 bg-white/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white transition-colors flex items-center gap-1.5'
 				>
-					{copiedToBook ? (
+					{copiedToBook === 'saved' ? (
 						<CheckCircle className='w-4 h-4 text-emerald-600 flex-shrink-0' />
+					) : copiedToBook === 'duplicate' ? (
+						<AlertCircle className='w-4 h-4 text-amber-600 flex-shrink-0' />
 					) : (
 						<BookmarkPlus className='w-4 h-4 text-gray-700 flex-shrink-0' />
 					)}
 					<span className='text-xs sm:text-sm font-medium text-gray-800 truncate'>
-						{copiedToBook ? t('savedToMyBook') : t('saveToMyBook')}
+						{copiedToBook === 'saved'
+							? t('savedToMyBook')
+							: copiedToBook === 'duplicate'
+								? t('recipeAlreadyExists')
+								: t('saveToMyBook')}
 					</span>
 				</button>
 				)}
@@ -600,7 +607,7 @@ export function RecipeDetail({
 										className={
 											notebook
 												? `notebook-hand notebook-ing ${isChecked ? 'is-checked' : ''}`
-												: `flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer border ${
+												: `flex items-start gap-3 p-3 rounded-xl transition-all cursor-pointer border ${
 														isChecked
 															? `${theme.tabActiveBg} border-${theme.borderAccent || 'orange-500'}`
 															: `${theme.bgSecondary} border-transparent hover:bg-black/5 dark:hover:bg-white/5`
@@ -611,20 +618,21 @@ export function RecipeDetail({
 											type='checkbox'
 											checked={isChecked}
 											onChange={() => toggleIngredientCheck(ing.id)}
-											className='w-5 h-5 rounded border-gray-400 dark:border-gray-500 text-orange-500 focus:ring-orange-500 bg-transparent'
+											className='w-5 h-5 mt-0.5 shrink-0 rounded border-gray-400 dark:border-gray-500 text-orange-500 focus:ring-orange-500 bg-transparent'
 										/>
-										<span className='flex-1 flex items-baseline notebook-ing-text'>
+										<span className='flex-1 flex items-start gap-x-2 notebook-ing-text min-w-0'>
 											<span
 												className={
 													notebook
-														? 'notebook-qty'
-														: `font-bold ${theme.textAccent} min-w-[70px] inline-block`
+														? 'notebook-qty whitespace-nowrap'
+														: `font-bold ${theme.textAccent} whitespace-nowrap shrink-0`
 												}
 											>
-												{scaledQty % 1 === 0 ? scaledQty : scaledQty.toFixed(1)}{' '}
+												{scaledQty % 1 === 0 ? scaledQty : scaledQty.toFixed(1)}
+												&nbsp;
 												{formatUnit(ing.unit)}
 											</span>
-											<span className={notebook ? 'ml-2' : `${theme.textPrimary} ml-2 font-medium text-base`}>
+											<span className={notebook ? '' : `${theme.textPrimary} font-medium text-base min-w-0 break-words`}>
 												{name}
 											</span>
 										</span>

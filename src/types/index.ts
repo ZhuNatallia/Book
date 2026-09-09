@@ -16,6 +16,7 @@ export interface Recipe {
   notes?: string;
   lastCookedAt?: string;
   tags?: string[];
+  copiedFromUserId?: string;
   createdAt: string;
   updatedAt: string;
 }
