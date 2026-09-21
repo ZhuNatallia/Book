@@ -235,9 +235,18 @@ function browserHeaders(): Record<string, string> {
   };
 }
 
-async function fetchPage(url: string): Promise<Response> {
+// Instagram serves the logged-out Chrome SPA (no caption) unless the client looks like a crawler.
+function crawlerHeaders(): Record<string, string> {
+  return {
+    'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+  };
+}
+
+async function fetchPage(url: string, headers: Record<string, string> = browserHeaders()): Promise<Response> {
   return fetch(url, {
-    headers: browserHeaders(),
+    headers,
     redirect: 'follow',
     signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
   });
@@ -406,6 +415,10 @@ function extractLdJsonBlocks(html: string): any[] {
 // Measurement units (RU + EN). Uses negative lookbehind instead of \b so it matches after stripped emoji.
 const MEASURE = /(?<!\w)(?:\d+[.,]?\d*\s*)?(щепотк[а-яё]*|pinch(?:es)?|prise)\b|(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece|el|tl|esslöffel|teelöffel|kilogramm|gramm)\b/i;
 
+function measureHits(s: string): number {
+  return [...s.matchAll(new RegExp(MEASURE.source, 'gi'))].length;
+}
+
 const FB_SLOGAN_RE =
   /^(facebook|log\s*in(?:to\s+facebook)?|explore what you love|исследуйте (?:то, что|вещи, которые) вы любите|войти(?:\s+на\s+facebook)?|вхід)$/i;
 
@@ -508,7 +521,7 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
     const stripped = line.replace(EMOJI_RE, '');
 
     // Section headers → switch mode, don't include the header text itself
-    if (/^(ингредиент|склад|складник|состав|продукт|ingredient|zutaten|das benötigen|ingrédients?|ingredienti|ingredientes|składnik)/i.test(stripped) && stripped.length < 80) {
+    if (/^(ингредиент|склад|складник|состав|продукт|рецепт|ingredient|zutaten|das benötigen|ingrédients?|ingredienti|ingredientes|składnik|recipe|rezept|przepis)/i.test(stripped) && stripped.length < 80) {
       mode = 'ing'; continue;
     }
     if (/^(приготовлени|приготуванн|шаги|крок|процесс|инструкц|способ|метод|steps?|directions?|method|how\s+to|zubereitung|anleitung|so geht|vorbereitung|arbeitsschritt|préparation|preparazione|preparación|przygotowan)/i.test(stripped) && stripped.length < 80) {
@@ -655,7 +668,7 @@ const LEADING_EMOJI_RE = new RegExp(`^[${EMOJI_CHARS}]+`, 'u');
 
 // Section headers used by captions to separate the ingredient list from the method.
 const CAPTION_SECTION_RE =
-  /[ \t]*((?:СПОСОБ\s+)?(?:ИНГРЕДИЕНТ|СОСТАВ|ПРОДУКТ|ПРИГОТОВЛЕНИ|ИНСТРУКЦИ|ШАГ)\p{L}*|INGREDIENTS|METHOD|DIRECTIONS|INSTRUCTIONS|PREPARATION|ZUTATEN|ZUBEREITUNG)[ \t]*:/giu;
+  /[ \t]*((?:СПОСОБ\s+)?(?:ИНГРЕДИЕНТ|СОСТАВ|ПРОДУКТ|ПРИГОТОВЛЕНИ|ИНСТРУКЦИ|ШАГ|РЕЦЕПТ)\p{L}*|INGREDIENTS?|RECIPE|METHOD|DIRECTIONS|INSTRUCTIONS|PREPARATION|ZUTATEN|ZUBEREITUNG|REZEPT|PRZEPIS)[ \t]*:/giu;
 
 // Emoji that the caption actually uses as a list marker. Learned from line starts so that a
 // mid-sentence emoji ("хотя их я тоже люблю👍 Основные ингредиенты...") is not mistaken for one
@@ -872,7 +885,7 @@ function captionLooksThin(s: string): boolean {
     || /[…]\s*$/.test(s)
     || /\.\.\.\s*$/.test(s)
     || s.length < 200
-    || !/\d/.test(s)
+    || measureHits(s) < 3
     || isLoginWallText(s)
     || looksLikeFacebookChrome(s)
     || looksLikeCommentThread(s);
@@ -920,17 +933,34 @@ async function structureCaption(
 }
 
 // Social captions come back as one long line where list items are separated by an emoji bullet
-// instead of a newline. parseDescriptionText classifies line by line, so put the breaks back.
+// or packed as "Name - 400 гр Name - 2 шт". parseDescriptionText classifies line by line, so
+// put the breaks back.
+function splitInlineIngredients(text: string): string {
+  return text
+    .replace(/(\d+[.,]?\d*)\s*шт\s+л\b/gi, '$1 ст. л')
+    .split('\n')
+    .map((line) => {
+      if (measureHits(line) < 2) return line;
+      return line.replace(
+        /(\d+[.,]?\d*\s*(?:г(?:р)?|кг|мл|л|шт\.?|ст\.?\s*л\.?|ч\.?\s*л\.?|tbsp|tsp|pcs|cup))\s+(?=[\p{L}#])/giu,
+        '$1\n',
+      );
+    })
+    .join('\n');
+}
+
 function splitCaptionLines(text: string): string {
   let out = text;
   for (const marker of detectBulletMarkers(text)) {
     out = out.split(marker).join(`\n${marker}`);
   }
-  return out
-    .replace(CAPTION_SECTION_RE, '\n$1:\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{2,}/g, '\n')
-    .trim();
+  return splitInlineIngredients(
+    out
+      .replace(CAPTION_SECTION_RE, '\n$1:\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{2,}/g, '\n')
+      .trim(),
+  );
 }
 
 // The model sometimes returns the whole method as one paragraph. Cooking mode shows a single
@@ -1105,10 +1135,9 @@ function looksLikeRecipeText(s: string): boolean {
   const parsed = parseDescriptionText(splitCaptionLines(text));
   if (parsed.ingredients.length >= 3) return true;
   if (parsed.ingredients.length >= 2 && parsed.instructions.length >= 2) return true;
-  const qtyLines = text.split('\n').filter((l) => MEASURE.test(l)).length;
-  if (qtyLines >= 3) return true;
+  if (measureHits(text) >= 3) return true;
   return MEASURE.test(text)
-    && /(ингредиент|состав|приготовл|ingredient|method|directions|zutaten|шаг\s*\d)/i.test(text);
+    && /(рецепт|ингредиент|состав|приготовл|ingredient|recipe|method|directions|zutaten|rezept|шаг\s*\d)/i.test(text);
 }
 
 // Instagram often pins the recipe under the reel. The reader dumps the whole thread;
@@ -1156,6 +1185,59 @@ function extractInstagramEmbeddedRecipe(html: string): string {
   return best;
 }
 
+function canonicalizeSocialUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^(stkn|igshid?|igsh|img_index|feature|utm_|fbclid)/i.test(key)) {
+        parsed.searchParams.delete(key);
+      }
+    }
+    return parsed.href;
+  } catch {
+    return url;
+  }
+}
+
+function instagramMediaId(url: string): string | undefined {
+  return url.match(/instagram\.com\/(?:reel|reels|p|tv)\/([A-Za-z0-9_-]+)/i)?.[1];
+}
+
+function instagramEmbedUrls(url: string): string[] {
+  const id = instagramMediaId(url);
+  if (!id) return [];
+  return [
+    `https://www.instagram.com/p/${id}/embed/captioned/`,
+    `https://www.instagram.com/reel/${id}/embed/captioned/`,
+  ];
+}
+
+function htmlToPlainCaption(html: string): string {
+  return stripHtml(
+    html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n'),
+  );
+}
+
+function extractInstagramEmbedCaption(html: string): string {
+  const fromJson = extractInstagramEmbeddedRecipe(html);
+  if (fromJson) return fromJson;
+  const quote = html.match(/<blockquote[^>]*>([\s\S]{80,8000})<\/blockquote>/i)?.[1];
+  if (quote) {
+    const text = htmlToPlainCaption(quote);
+    if (looksLikeRecipeText(text) || text.length >= 120) return text;
+  }
+  const captionBlock =
+    html.match(/<div[^>]*class="Caption"[^>]*>([\s\S]*?)<div class="CaptionComments"/i)?.[1]
+    ?? html.match(/<div[^>]*class="Caption"[^>]*>([\s\S]{40,8000}?)<\/div>/i)?.[1];
+  if (captionBlock) {
+    const text = htmlToPlainCaption(captionBlock);
+    if (text.length >= 60) return text;
+  }
+  return '';
+}
+
 // A longer scrape is not better when it is the profile header plus other people's replies.
 function betterSocialText(current: string, candidate: string): string {
   if (!candidate || isLoginWallText(candidate) || looksLikeFacebookChrome(candidate)) return current;
@@ -1164,7 +1246,10 @@ function betterSocialText(current: string, candidate: string): string {
   const curRecipe = looksLikeRecipeText(current);
   const newRecipe = looksLikeRecipeText(next);
   if (newRecipe && !curRecipe) return next;
-  if (newRecipe && curRecipe && next.length > current.length) return next;
+  if (newRecipe && curRecipe && (measureHits(next) > measureHits(current) || next.length > current.length)) {
+    return next;
+  }
+  if (!curRecipe && measureHits(next) >= 3 && measureHits(next) > measureHits(current)) return next;
   if (!current) return looksLikeCommentThread(next) ? '' : next;
   return current;
 }
@@ -1273,10 +1358,51 @@ function llmFieldExamples(lang: string) {
 // Overridable via GROQ_MODEL so the next migration needs no code change.
 const DEFAULT_GROQ_MODEL = 'openai/gpt-oss-20b';
 
-// gpt-oss cannot see images. Groq dropped Llama 4 Scout; current vision is Qwen.
-const DEFAULT_GROQ_VISION_MODEL = 'qwen/qwen3.6-27b';
-const DEAD_GROQ_VISION = /llama-4-scout|llama-4-maverick|llava/i;
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
+
+// gpt-oss cannot see images. Groq replaced Qwen 3.6 with 3.8 as the vision model.
+const DEFAULT_GROQ_VISION_MODEL = 'qwen/qwen3.8-27b';
+const GROQ_VISION_FALLBACKS = [DEFAULT_GROQ_VISION_MODEL, 'qwen/qwen3.6-27b'];
+const DEAD_GROQ_VISION =
+  /llama-4-scout|llama-4-maverick|llava|qwen3-32b|llama-3\.2-\d+b-vision/i;
 const SCREENSHOT_MAX_CHARS = 2_000_000;
+
+type LlmClient = { key: string; apiUrl: string; model: string };
+
+function isDeadModelError(detail?: string): boolean {
+  return /decommissioned|model_not_found|does not exist|unknown model|invalid_model/i.test(
+    detail ?? '',
+  );
+}
+
+function groqVisionModelQueue(): string[] {
+  const override = Deno.env.get('GROQ_VISION_MODEL')?.trim();
+  const queued = [
+    ...(override ? [override] : []),
+    ...GROQ_VISION_FALLBACKS,
+  ].filter((id) => id && !DEAD_GROQ_VISION.test(id));
+  return [...new Set(queued)];
+}
+
+function visionClients(): LlmClient[] {
+  const groqKey = Deno.env.get('GROQ_API_KEY');
+  const openaiKey = Deno.env.get('OPENAI_API_KEY');
+  const clients: LlmClient[] = [];
+  if (groqKey) {
+    for (const model of groqVisionModelQueue()) {
+      clients.push({ key: groqKey, apiUrl: GROQ_CHAT_URL, model });
+    }
+  }
+  if (openaiKey) {
+    clients.push({
+      key: openaiKey,
+      apiUrl: OPENAI_CHAT_URL,
+      model: Deno.env.get('OPENAI_VISION_MODEL')?.trim() || 'gpt-4o-mini',
+    });
+  }
+  return clients;
+}
 
 // Groq's free tier caps tokens-per-minute at 8000 for gpt-oss-20b, and a reserved
 // max_tokens counts toward that budget — an oversized reservation is rejected with
@@ -1315,12 +1441,12 @@ function budgetMaxTokens(promptChars: number, desired: number): number {
 // limit are indistinguishable from "the text simply had no recipe in it".
 let llmDiag: string | undefined;
 
-function resolveLlm(): { key: string; apiUrl: string; model: string } | null {
+function resolveLlm(): LlmClient | null {
   const groqKey = Deno.env.get('GROQ_API_KEY');
   if (groqKey) {
     return {
       key: groqKey,
-      apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
+      apiUrl: GROQ_CHAT_URL,
       model: Deno.env.get('GROQ_MODEL') ?? DEFAULT_GROQ_MODEL,
     };
   }
@@ -1328,21 +1454,12 @@ function resolveLlm(): { key: string; apiUrl: string; model: string } | null {
   if (openaiKey) {
     return {
       key: openaiKey,
-      apiUrl: 'https://api.openai.com/v1/chat/completions',
+      apiUrl: OPENAI_CHAT_URL,
       model: Deno.env.get('OPENAI_MODEL') ?? 'gpt-4o-mini',
     };
   }
   llmDiag = 'no_api_key';
   return null;
-}
-
-function resolveVisionModel(llm: { apiUrl: string; model: string }): string {
-  if (llm.apiUrl.includes('groq.com')) {
-    const override = Deno.env.get('GROQ_VISION_MODEL');
-    if (override && !DEAD_GROQ_VISION.test(override)) return override;
-    return DEFAULT_GROQ_VISION_MODEL;
-  }
-  return Deno.env.get('OPENAI_VISION_MODEL') ?? llm.model;
 }
 
 function llmRequestExtras(model: string): Record<string, unknown> {
@@ -1381,8 +1498,15 @@ async function completeLlm(
 ): Promise<string | null> {
   const llm = resolveLlm();
   if (!llm) return null;
+  return completeLlmWith({ ...llm, model: modelOverride ?? llm.model }, body, label);
+}
 
-  const model = modelOverride ?? llm.model;
+async function completeLlmWith(
+  llm: LlmClient,
+  body: Record<string, unknown>,
+  label: string,
+): Promise<string | null> {
+  const model = llm.model;
   const extras = llmRequestExtras(model);
 
   const post = (payload: Record<string, unknown>) =>
@@ -1638,7 +1762,7 @@ function screenshotVisionError(lang: string): string {
       ? 'Распознавание скринов не настроено.'
       : 'Screenshot recognition is not configured.';
   }
-  if (/decommissioned|model_not_found|does not exist|unknown model/i.test(llmDiag)) {
+  if (isDeadModelError(llmDiag)) {
     return ru
       ? 'Модель распознавания обновилась. Подождите минуту и повторите.'
       : 'The recognition model changed. Wait a minute and try again.';
@@ -1651,10 +1775,13 @@ function screenshotVisionError(lang: string): string {
 // First pass: dump visible text. JSON extraction in the same call was too heavy for
 // Groq vision and collapsed every API failure into "no text on the screenshot".
 async function tryVisionTranscript(dataUrl: string): Promise<string | null> {
-  const llm = resolveLlm();
-  if (!llm) return null;
+  const clients = visionClients();
+  if (!clients.length) {
+    llmDiag = 'no_api_key';
+    return null;
+  }
 
-  const content = await completeLlm({
+  const body = {
     max_tokens: 2200,
     messages: [{
       role: 'user',
@@ -1669,11 +1796,15 @@ Return plain text only. No JSON. No commentary.`,
         { type: 'image_url', image_url: { url: dataUrl } },
       ],
     }],
-  }, 'vision-ocr', resolveVisionModel(llm));
+  };
 
-  if (!content) return null;
-  const text = content.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
-  return text.length >= 20 ? text : null;
+  for (const llm of clients) {
+    const content = await completeLlmWith(llm, body, 'vision-ocr');
+    if (!content) continue;
+    const text = content.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
+    if (text.length >= 20) return text;
+  }
+  return null;
 }
 
 async function translateRecipeList(
@@ -2189,11 +2320,12 @@ serve(async (req) => {
     const isFacebook = isFacebookUrl(url);
     const isSocial = /instagram\.com|tiktok\.com|facebook\.com|fb\.watch/i.test(url);
     const isYouTube = /youtube\.com|youtu\.be/i.test(url);
+    const isInstagram = /instagram\.com/i.test(url);
 
     // ── Social media branch: microlink.io free API for OG metadata ──
     if (isSocial) {
-      let sourceUrl = url;
-      if (isFacebook) sourceUrl = await resolveFacebookUrl(url);
+      let sourceUrl = canonicalizeSocialUrl(url);
+      if (isFacebook) sourceUrl = await resolveFacebookUrl(sourceUrl);
 
       let mlTitle: string | undefined;
       let mlDesc: string | undefined;
@@ -2266,6 +2398,19 @@ serve(async (req) => {
           const pageRes = await fetchPage(sourceUrl);
           if (pageRes.ok) ingestHtml(await pageRes.text());
         } catch { /* ignore */ }
+      }
+
+      if (isInstagram && captionLooksThin(rawCaption)) {
+        for (const embed of instagramEmbedUrls(sourceUrl)) {
+          try {
+            const pageRes = await fetchPage(embed, crawlerHeaders());
+            if (!pageRes.ok) continue;
+            const html = await pageRes.text();
+            rawCaption = betterSocialText(rawCaption, extractInstagramEmbedCaption(html));
+            ingestHtml(html);
+            if (!captionLooksThin(rawCaption)) break;
+          } catch { /* ignore */ }
+        }
       }
 
       if (isFacebook && captionLooksThin(rawCaption)) {

@@ -18,7 +18,7 @@ import {
   cloneRecipeForUser,
   translateCloneToLang,
   updateRecipeFlags,
-  setRecipeVisible,
+  setRecipeVisibility,
   RecipeFlagPatch,
   migrateDataUrlRecipeImages,
 } from '../lib/recipeDb';
@@ -41,6 +41,8 @@ import {
 import { ingredientMergeKey, mergeQtyUnit, pickDisplayName } from '../lib/ingredientMerge';
 import { mondayISO } from '../lib/week';
 import { isQuotaError } from '../lib/plan';
+import { ALL_CIRCLES, FriendCircle, circlesFromVisible, sameCircles } from '../lib/friendCircles';
+import { isDataUrl, isHttpUrl } from '../lib/media';
 
 const SNAPSHOT_TYPES = new Set<SyncJob['type']>([
   'persistMealPlan',
@@ -92,33 +94,73 @@ function mergeByNameUnit(
 
 function withLiveVisibility(full: FullRecipe, liveRecipes: FullRecipe[]): FullRecipe {
   const live = liveRecipes.find((r) => r.recipe.id === full.recipe.id);
-  if (!live || live.recipe.visibleToFriends === full.recipe.visibleToFriends) {
+  if (!live) return full;
+  if (
+    live.recipe.visibleToFriends === full.recipe.visibleToFriends &&
+    sameCircles(live.recipe.visibleCircles, full.recipe.visibleCircles)
+  ) {
     return full;
   }
   return {
     ...full,
-    recipe: { ...full.recipe, visibleToFriends: live.recipe.visibleToFriends },
+    recipe: {
+      ...full.recipe,
+      visibleToFriends: live.recipe.visibleToFriends,
+      visibleCircles: live.recipe.visibleCircles ?? circlesFromVisible(live.recipe.visibleToFriends),
+    },
   };
 }
 
 function keepVisibility(incoming: FullRecipe, live?: FullRecipe): FullRecipe {
-  if (!live || live.recipe.visibleToFriends === incoming.recipe.visibleToFriends) {
+  if (!live) return incoming;
+  if (
+    live.recipe.visibleToFriends === incoming.recipe.visibleToFriends &&
+    sameCircles(live.recipe.visibleCircles, incoming.recipe.visibleCircles)
+  ) {
     return incoming;
   }
   return {
     ...incoming,
-    recipe: { ...incoming.recipe, visibleToFriends: live.recipe.visibleToFriends },
+    recipe: {
+      ...incoming.recipe,
+      visibleToFriends: live.recipe.visibleToFriends,
+      visibleCircles: live.recipe.visibleCircles ?? circlesFromVisible(live.recipe.visibleToFriends),
+    },
   };
 }
 
-function applySavedEyes(recipes: FullRecipe[], eyes: Record<string, boolean>): FullRecipe[] {
+function applySavedEyes(
+  recipes: FullRecipe[],
+  eyes: Record<string, boolean>,
+  circlesById: Record<string, FriendCircle[]> = {},
+): FullRecipe[] {
   return recipes.map((full) => {
-    if (!(full.recipe.id in eyes) || full.recipe.visibleToFriends === eyes[full.recipe.id]) {
-      return full;
+    const id = full.recipe.id;
+    if (id in circlesById) {
+      const circles = circlesById[id];
+      const visible = circles.length > 0;
+      if (full.recipe.visibleToFriends === visible && sameCircles(full.recipe.visibleCircles, circles)) {
+        return full;
+      }
+      return {
+        ...full,
+        recipe: { ...full.recipe, visibleToFriends: visible, visibleCircles: circles },
+      };
     }
+    const visibleCircles =
+      full.recipe.visibleCircles ?? circlesFromVisible(full.recipe.visibleToFriends ?? true);
+    if (!(id in eyes) || full.recipe.visibleToFriends === eyes[id]) {
+      if (sameCircles(full.recipe.visibleCircles, visibleCircles)) return full;
+      return { ...full, recipe: { ...full.recipe, visibleCircles } };
+    }
+    const visible = eyes[id];
     return {
       ...full,
-      recipe: { ...full.recipe, visibleToFriends: eyes[full.recipe.id] },
+      recipe: {
+        ...full.recipe,
+        visibleToFriends: visible,
+        visibleCircles: circlesFromVisible(visible, full.recipe.visibleCircles),
+      },
     };
   });
 }
@@ -146,6 +188,7 @@ function markOpenedAllEyes(userId: string) {
 function openHiddenOwnRecipes(
   list: FullRecipe[],
   eyes: Record<string, boolean>,
+  circlesById: Record<string, FriendCircle[]>,
 ): { list: FullRecipe[]; openedIds: string[] } {
   const openedIds: string[] = [];
   const next = list.map((full) => {
@@ -155,7 +198,11 @@ function openHiddenOwnRecipes(
     }
     openedIds.push(id);
     eyes[id] = true;
-    return { ...full, recipe: { ...full.recipe, visibleToFriends: true } };
+    circlesById[id] = [...ALL_CIRCLES];
+    return {
+      ...full,
+      recipe: { ...full.recipe, visibleToFriends: true, visibleCircles: [...ALL_CIRCLES] },
+    };
   });
   return { list: openedIds.length ? next : list, openedIds };
 }
@@ -163,16 +210,49 @@ function openHiddenOwnRecipes(
 function visibilityDiffs(
   remote: FullRecipe[],
   eyes: Record<string, boolean>,
-): { recipeId: string; visible: boolean }[] {
-  const diffs: { recipeId: string; visible: boolean }[] = [];
+  circlesById: Record<string, FriendCircle[]>,
+): { recipeId: string; visible: boolean; circles: FriendCircle[] }[] {
+  const diffs: { recipeId: string; visible: boolean; circles: FriendCircle[] }[] = [];
   for (const full of remote) {
     const id = full.recipe.id;
-    if (!(id in eyes) || !isUuid(id)) continue;
-    if (eyes[id] !== full.recipe.visibleToFriends) {
-      diffs.push({ recipeId: id, visible: eyes[id] });
+    if (!isUuid(id)) continue;
+    if (id in circlesById) {
+      const circles = circlesById[id];
+      const visible = circles.length > 0;
+      if (!sameCircles(circles, full.recipe.visibleCircles) || visible !== full.recipe.visibleToFriends) {
+        diffs.push({ recipeId: id, visible, circles });
+      }
+      continue;
+    }
+    if (id in eyes && eyes[id] !== full.recipe.visibleToFriends) {
+      diffs.push({
+        recipeId: id,
+        visible: eyes[id],
+        circles: circlesFromVisible(eyes[id], full.recipe.visibleCircles),
+      });
     }
   }
   return diffs;
+}
+
+function mergeOwnPhotos(
+  remote: FullRecipe[],
+  local: FullRecipe[],
+): { merged: FullRecipe[]; toUpload: FullRecipe[] } {
+  const localById = new Map(local.map((r) => [r.recipe.id, r]));
+  const toUpload: FullRecipe[] = [];
+  const merged = remote.map((r) => {
+    const remoteUrl = r.recipe.imageUrl;
+    if (isHttpUrl(remoteUrl) && !isDataUrl(remoteUrl)) return r;
+    const localUrl = localById.get(r.recipe.id)?.recipe.imageUrl;
+    if (localUrl && (isDataUrl(localUrl) || isHttpUrl(localUrl))) {
+      const next = { ...r, recipe: { ...r.recipe, imageUrl: localUrl } };
+      if (isUuid(r.recipe.id) && !isSampleRecipeId(r.recipe.id)) toUpload.push(next);
+      return next;
+    }
+    return r;
+  });
+  return { merged, toUpload };
 }
 
 function applyPendingJobs(recipes: FullRecipe[], jobs: SyncJob[]): FullRecipe[] {
@@ -197,6 +277,9 @@ function applyPendingJobs(recipes: FullRecipe[], jobs: SyncJob[]): FullRecipe[] 
             ...(job.patch.status !== undefined ? { status: job.patch.status } : {}),
             ...(job.patch.visibleToFriends !== undefined
               ? { visibleToFriends: job.patch.visibleToFriends }
+              : {}),
+            ...(job.patch.visibleCircles !== undefined
+              ? { visibleCircles: job.patch.visibleCircles as FriendCircle[] }
               : {}),
             ...(job.patch.lastCookedAt !== undefined
               ? { lastCookedAt: job.patch.lastCookedAt ?? undefined }
@@ -234,9 +317,10 @@ export function useRecipeStore(userId?: string) {
     const cache = loadBookCache(userId);
     if (!cache) return sampleRecipes;
     const eyes = { ...(cache.visibilityById ?? {}) };
-    let own = applySavedEyes(cache.recipes, eyes);
+    const circles = { ...(cache.visibilityCirclesById ?? {}) } as Record<string, FriendCircle[]>;
+    let own = applySavedEyes(cache.recipes, eyes, circles);
     if (!hasOpenedAllEyes(userId)) {
-      own = openHiddenOwnRecipes(own, eyes).list;
+      own = openHiddenOwnRecipes(own, eyes, circles).list;
     }
     return [...sampleRecipes, ...own];
   });
@@ -264,6 +348,9 @@ export function useRecipeStore(userId?: string) {
   const visibilityRef = useRef<Record<string, boolean>>(
     userId ? loadBookCache(userId)?.visibilityById ?? {} : {},
   );
+  const circlesRef = useRef<Record<string, FriendCircle[]>>(
+    (userId ? loadBookCache(userId)?.visibilityCirclesById ?? {} : {}) as Record<string, FriendCircle[]>,
+  );
   recipesRef.current = recipes;
   shoppingRef.current = shoppingList;
   pantryRef.current = pantry;
@@ -273,13 +360,14 @@ export function useRecipeStore(userId?: string) {
     if (!userId) return;
     const own = recipesRef.current.filter((r) => !isSampleRecipeId(r.recipe.id));
     const cache: BookCache = {
-      recipes: applySavedEyes(own, visibilityRef.current),
+      recipes: applySavedEyes(own, visibilityRef.current, circlesRef.current),
       shoppingList: shoppingRef.current,
       pantry: pantryRef.current,
       mealPlan: mealPlanRef.current,
       queue: queueRef.current,
       localTouchedAt: touchedRef.current,
       visibilityById: visibilityRef.current,
+      visibilityCirclesById: circlesRef.current,
     };
     saveBookCache(userId, cache);
   }, [userId]);
@@ -318,11 +406,20 @@ export function useRecipeStore(userId?: string) {
           }
           const saved = await persistFullRecipe(
             userId,
-            withLiveVisibility(job.recipe, applySavedEyes(recipesRef.current, visibilityRef.current)),
+            withLiveVisibility(
+              job.recipe,
+              applySavedEyes(recipesRef.current, visibilityRef.current, circlesRef.current),
+            ),
           );
-          const liveVisible = visibilityRef.current[saved.recipe.id] ?? saved.recipe.visibleToFriends;
-          if (liveVisible !== saved.recipe.visibleToFriends) {
-            await setRecipeVisible(saved.recipe.id, liveVisible);
+          const liveCircles = circlesRef.current[saved.recipe.id];
+          const liveVisible = liveCircles
+            ? liveCircles.length > 0
+            : (visibilityRef.current[saved.recipe.id] ?? saved.recipe.visibleToFriends);
+          if (
+            (liveCircles && !sameCircles(liveCircles, saved.recipe.visibleCircles)) ||
+            liveVisible !== saved.recipe.visibleToFriends
+          ) {
+            await setRecipeVisibility(saved.recipe.id, liveVisible, liveCircles);
           }
         } else if (job.type === 'updateFlags') {
           await updateRecipeFlags(job.recipeId, job.patch);
@@ -379,12 +476,18 @@ export function useRecipeStore(userId?: string) {
             userId,
             withLiveVisibility(
               job.recipe,
-              applySavedEyes(recipesRef.current, visibilityRef.current),
+              applySavedEyes(recipesRef.current, visibilityRef.current, circlesRef.current),
             ),
           );
-          const liveVisible = visibilityRef.current[saved.recipe.id] ?? saved.recipe.visibleToFriends;
-          if (liveVisible !== saved.recipe.visibleToFriends) {
-            await setRecipeVisible(saved.recipe.id, liveVisible);
+          const liveCircles = circlesRef.current[saved.recipe.id];
+          const liveVisible = liveCircles
+            ? liveCircles.length > 0
+            : (visibilityRef.current[saved.recipe.id] ?? saved.recipe.visibleToFriends);
+          if (
+            (liveCircles && !sameCircles(liveCircles, saved.recipe.visibleCircles)) ||
+            liveVisible !== saved.recipe.visibleToFriends
+          ) {
+            await setRecipeVisibility(saved.recipe.id, liveVisible, liveCircles);
           }
           setRecipes((prev) =>
             applySavedEyes(
@@ -395,6 +498,7 @@ export function useRecipeStore(userId?: string) {
                 return saved;
               }),
               visibilityRef.current,
+              circlesRef.current,
             ),
           );
         } else if (job.type === 'updateFlags') {
@@ -494,15 +598,17 @@ export function useRecipeStore(userId?: string) {
       queueRef.current = [];
       touchedRef.current = {};
       visibilityRef.current = {};
+      circlesRef.current = {};
       return;
     }
     const cached = loadBookCache(userId) ?? emptyBookCache();
     queueRef.current = cached.queue;
     touchedRef.current = cached.localTouchedAt;
     visibilityRef.current = { ...(cached.visibilityById ?? {}) };
-    let cachedOwn = applySavedEyes(cached.recipes, visibilityRef.current);
+    circlesRef.current = { ...((cached.visibilityCirclesById ?? {}) as Record<string, FriendCircle[]>) };
+    let cachedOwn = applySavedEyes(cached.recipes, visibilityRef.current, circlesRef.current);
     if (!hasOpenedAllEyes(userId)) {
-      const opened = openHiddenOwnRecipes(cachedOwn, visibilityRef.current);
+      const opened = openHiddenOwnRecipes(cachedOwn, visibilityRef.current, circlesRef.current);
       cachedOwn = opened.list;
       if (opened.openedIds.length > 0) {
         const touchedAt = nowIso();
@@ -511,7 +617,7 @@ export function useRecipeStore(userId?: string) {
           enqueue({
             type: 'updateFlags',
             recipeId,
-            patch: { visibleToFriends: true },
+            patch: { visibleToFriends: true, visibleCircles: [...ALL_CIRCLES] },
             touchedAt,
           });
         }
@@ -535,9 +641,9 @@ export function useRecipeStore(userId?: string) {
         if (cancelled) return;
         const jobs = queueRef.current;
         if (remoteRes.status === 'fulfilled') {
-          let remote = applySavedEyes(remoteRes.value, visibilityRef.current);
+          let remote = applySavedEyes(remoteRes.value, visibilityRef.current, circlesRef.current);
           if (!hasOpenedAllEyes(userId)) {
-            const opened = openHiddenOwnRecipes(remote, visibilityRef.current);
+            const opened = openHiddenOwnRecipes(remote, visibilityRef.current, circlesRef.current);
             remote = opened.list;
             if (opened.openedIds.length > 0) {
               const touchedAt = nowIso();
@@ -546,7 +652,7 @@ export function useRecipeStore(userId?: string) {
                 enqueue({
                   type: 'updateFlags',
                   recipeId,
-                  patch: { visibleToFriends: true },
+                  patch: { visibleToFriends: true, visibleCircles: [...ALL_CIRCLES] },
                   touchedAt,
                 });
               }
@@ -556,24 +662,33 @@ export function useRecipeStore(userId?: string) {
           if (hasRecipeJobs(jobs) || hasRecipeJobs(queueRef.current)) {
             remote = applyPendingJobs(remote, queueRef.current);
           }
+          const photoMerge = mergeOwnPhotos(remote, cachedOwn);
+          remote = photoMerge.merged;
           setRecipes([...sampleRecipes, ...remote]);
-          const diffs = visibilityDiffs(remoteRes.value, visibilityRef.current);
+          const diffs = visibilityDiffs(remoteRes.value, visibilityRef.current, circlesRef.current);
           for (const diff of diffs) {
-            void setRecipeVisible(diff.recipeId, diff.visible).catch((err) => {
+            void setRecipeVisibility(diff.recipeId, diff.visible, diff.circles).catch((err) => {
               if (!isQuotaError(err)) {
                 enqueue({
                   type: 'updateFlags',
                   recipeId: diff.recipeId,
-                  patch: { visibleToFriends: diff.visible },
+                  patch: { visibleToFriends: diff.visible, visibleCircles: diff.circles },
                   touchedAt: nowIso(),
                 });
               }
             });
           }
+          if (photoMerge.toUpload.length > 0) {
+            const touchedAt = nowIso();
+            for (const full of photoMerge.toUpload) {
+              enqueue({ type: 'persistRecipe', recipe: full, touchedAt });
+            }
+            void flushQueue();
+          }
           if (navigator.onLine && remote.some((r) => r.recipe.imageUrl?.startsWith('data:'))) {
             remote = await migrateDataUrlRecipeImages(userId, remote);
             if (cancelled) return;
-            remote = applySavedEyes(remote, visibilityRef.current);
+            remote = applySavedEyes(remote, visibilityRef.current, circlesRef.current);
             if (hasRecipeJobs(queueRef.current)) {
               remote = applyPendingJobs(remote, queueRef.current);
             }
@@ -622,10 +737,15 @@ export function useRecipeStore(userId?: string) {
   const addRecipe = useCallback(
     (recipe: FullRecipe) => {
       if (!isSampleRecipeId(recipe.recipe.id)) {
+        const circles = circlesFromVisible(
+          recipe.recipe.visibleToFriends ?? true,
+          recipe.recipe.visibleCircles,
+        );
         visibilityRef.current = {
           ...visibilityRef.current,
-          [recipe.recipe.id]: recipe.recipe.visibleToFriends ?? true,
+          [recipe.recipe.id]: circles.length > 0,
         };
+        circlesRef.current = { ...circlesRef.current, [recipe.recipe.id]: circles };
       }
       setRecipes((prev) => [...prev, recipe]);
       if (!userId || isSampleRecipeId(recipe.recipe.id)) return;
@@ -655,11 +775,18 @@ export function useRecipeStore(userId?: string) {
   const updateRecipe = useCallback(
     (updatedRecipe: FullRecipe) => {
       const id = updatedRecipe.recipe.id;
-      const visible = visibilityRef.current[id] ?? updatedRecipe.recipe.visibleToFriends ?? true;
+      const circles =
+        circlesRef.current[id] ??
+        circlesFromVisible(
+          visibilityRef.current[id] ?? updatedRecipe.recipe.visibleToFriends ?? true,
+          updatedRecipe.recipe.visibleCircles,
+        );
+      const visible = circles.length > 0;
       visibilityRef.current = { ...visibilityRef.current, [id]: visible };
+      circlesRef.current = { ...circlesRef.current, [id]: circles };
       const toSave = {
         ...updatedRecipe,
-        recipe: { ...updatedRecipe.recipe, visibleToFriends: visible },
+        recipe: { ...updatedRecipe.recipe, visibleToFriends: visible, visibleCircles: circles },
       };
       setRecipes((prev) => prev.map((r) => (r.recipe.id === id ? toSave : r)));
       if (!userId || isSampleRecipeId(id)) return;
@@ -680,6 +807,11 @@ export function useRecipeStore(userId?: string) {
         const nextEyes = { ...visibilityRef.current };
         delete nextEyes[recipeId];
         visibilityRef.current = nextEyes;
+      }
+      if (recipeId in circlesRef.current) {
+        const nextCircles = { ...circlesRef.current };
+        delete nextCircles[recipeId];
+        circlesRef.current = nextCircles;
       }
       if (!userId || isSampleRecipeId(recipeId) || !isUuid(recipeId)) return;
       touch('recipes');
@@ -728,16 +860,18 @@ export function useRecipeStore(userId?: string) {
     [userId, runRemote, touch],
   );
 
-  const toggleVisibility = useCallback(
-    (recipeId: string) => {
+  const setRecipeCircles = useCallback(
+    (recipeId: string, nextCircles: FriendCircle[]) => {
       const current = recipesRef.current.find((r) => r.recipe.id === recipeId);
       if (!current || isSampleRecipeId(recipeId)) return;
-      const nextVisible = !current.recipe.visibleToFriends;
+      const circles = circlesFromVisible(nextCircles.length > 0, nextCircles);
+      const nextVisible = circles.length > 0;
       visibilityRef.current = { ...visibilityRef.current, [recipeId]: nextVisible };
+      circlesRef.current = { ...circlesRef.current, [recipeId]: circles };
       setRecipes((prev) =>
         prev.map((r) =>
           r.recipe.id === recipeId
-            ? { ...r, recipe: { ...r.recipe, visibleToFriends: nextVisible } }
+            ? { ...r, recipe: { ...r.recipe, visibleToFriends: nextVisible, visibleCircles: circles } }
             : r,
         ),
       );
@@ -749,7 +883,11 @@ export function useRecipeStore(userId?: string) {
             ...job,
             recipe: {
               ...job.recipe,
-              recipe: { ...job.recipe.recipe, visibleToFriends: nextVisible },
+              recipe: {
+                ...job.recipe.recipe,
+                visibleToFriends: nextVisible,
+                visibleCircles: circles,
+              },
             },
           };
         });
@@ -757,12 +895,22 @@ export function useRecipeStore(userId?: string) {
         void runRemote({
           type: 'updateFlags',
           recipeId,
-          patch: { visibleToFriends: nextVisible },
+          patch: { visibleToFriends: nextVisible, visibleCircles: circles },
           touchedAt: nowIso(),
         });
       }
     },
     [userId, runRemote, touch, persistCache],
+  );
+
+  const toggleVisibility = useCallback(
+    (recipeId: string) => {
+      const current = recipesRef.current.find((r) => r.recipe.id === recipeId);
+      if (!current || isSampleRecipeId(recipeId)) return;
+      const nextVisible = !current.recipe.visibleToFriends;
+      setRecipeCircles(recipeId, nextVisible ? ALL_CIRCLES : []);
+    },
+    [setRecipeCircles],
   );
 
   const addToShoppingList = useCallback(
@@ -928,6 +1076,7 @@ export function useRecipeStore(userId?: string) {
     removeCopiedFromFriend,
     toggleRecipeStatus,
     toggleVisibility,
+    setRecipeCircles,
     addToShoppingList,
     toggleShoppingItem,
     removeFromShoppingList,

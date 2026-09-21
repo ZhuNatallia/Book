@@ -1,3 +1,5 @@
+import type { FriendCircle } from '../lib/friendCircles';
+
 export type Language = 'ru' | 'en' | 'de' | 'uk' | 'pl' | 'it' | 'es' | 'fr' | 'kk';
 
 export interface Recipe {
@@ -13,6 +15,7 @@ export interface Recipe {
   fat?: number;
   carbs?: number;
   visibleToFriends: boolean;
+  visibleCircles?: FriendCircle[];
   notes?: string;
   lastCookedAt?: string;
   tags?: string[];
@@ -29,6 +32,7 @@ export interface FriendProfile {
   username: string | null;
   nickname: string | null;
   avatarUrl: string | null;
+  circle: FriendCircle;
 }
 
 export interface RecipeTranslation {

@@ -11,7 +11,7 @@ import { compressImageFile } from '../lib/media';
 import { useOnline } from '../lib/online';
 import { findExistingRecipe } from '../lib/recipeMatch';
 import { usePlan } from '../i18n/PlanContext';
-import { isQuotaError } from '../lib/plan';
+import { ALL_CIRCLES } from '../lib/friendCircles';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle, Mic } from 'lucide-react';
 
 interface AddRecipeModalProps {
@@ -759,6 +759,7 @@ export function AddRecipeModal({
         fat: parseFiniteInput(parsed.fat),
         carbs: parseFiniteInput(parsed.carbs),
         visibleToFriends: true,
+        visibleCircles: [...ALL_CIRCLES],
         notes: undefined,
         tags,
         createdAt: now,
@@ -858,6 +859,7 @@ export function AddRecipeModal({
         fat: parseFiniteInput(fat),
         carbs: parseFiniteInput(carbs),
         visibleToFriends: editingRecipe?.recipe.visibleToFriends ?? true,
+        visibleCircles: editingRecipe?.recipe.visibleCircles ?? [...ALL_CIRCLES],
         notes: notes.trim() || undefined,
         lastCookedAt: editingRecipe?.recipe.lastCookedAt,
         tags,

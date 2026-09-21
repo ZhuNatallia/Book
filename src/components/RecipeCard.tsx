@@ -14,13 +14,13 @@ import {
 	Trash2,
 	Pencil,
 	UtensilsCrossed,
-	Eye,
-	EyeOff,
 	BookmarkPlus,
 	CalendarPlus,
 	CalendarCheck,
 } from 'lucide-react';
 import { shelfLabel, hasMomsShelf } from '../data/shelves';
+import { VisibilityEye } from './VisibilityEye';
+import { ALL_CIRCLES, FriendCircle, circlesFromVisible } from '../lib/friendCircles';
 
 interface RecipeCardProps {
 	recipe: FullRecipe;
@@ -29,6 +29,7 @@ interface RecipeCardProps {
 	onView: () => void;
 	onToggleStatus: () => void;
 	onToggleVisibility?: () => void;
+	onChangeVisibility?: (circles: FriendCircle[]) => void;
 	onCopy?: () => void;
 	onToggleMenu?: () => void;
 	inMenu?: boolean;
@@ -43,6 +44,7 @@ export function RecipeCard({
 	onView,
 	onToggleStatus,
 	onToggleVisibility,
+	onChangeVisibility,
 	onCopy,
 	onToggleMenu,
 	inMenu = false,
@@ -63,6 +65,14 @@ export function RecipeCard({
 	const protein = parseFiniteInput(r.protein);
 	const fat = parseFiniteInput(r.fat);
 	const carbs = parseFiniteInput(r.carbs);
+	const visibleCircles = circlesFromVisible(
+		recipe.recipe.visibleToFriends,
+		recipe.recipe.visibleCircles,
+	);
+	const changeVisibility = (circles: FriendCircle[]) => {
+		if (onChangeVisibility) onChangeVisibility(circles);
+		else if (circles.length === 0 || circles.length === ALL_CIRCLES.length) onToggleVisibility?.();
+	};
 
 	const translation =
 		recipe.translations.find((tr) => tr.language === language) ||
@@ -181,58 +191,8 @@ export function RecipeCard({
 							)}
 						</button>
 					)}
-					{isOwner && !recipe.recipe.id.startsWith('sample-') && (
-						<button
-							type='button'
-							onClick={(e) => {
-								e.stopPropagation();
-								onToggleVisibility?.();
-							}}
-							title={
-								recipe.recipe.visibleToFriends
-									? t('visibleToFriends')
-									: t('hiddenFromFriends')
-							}
-							className={`${iconBtn} ${
-								recipe.recipe.visibleToFriends
-									? 'bg-white/90 text-emerald-600 border-emerald-200'
-									: 'bg-white/90 text-gray-500 border-white/60'
-							}`}
-						>
-							{recipe.recipe.visibleToFriends ? (
-								<Eye className='w-3.5 h-3.5' />
-							) : (
-								<EyeOff className='w-3.5 h-3.5' />
-							)}
-						</button>
-					)}
 				</div>
-				{isOwner ? (
-					<div className='flex items-center gap-1'>
-						<button
-							type='button'
-							onClick={(e) => {
-								e.stopPropagation();
-								onEdit();
-							}}
-							title={t('edit')}
-							className={`${iconBtn} bg-white/95 border-white/80`}
-						>
-							<Pencil className='w-3.5 h-3.5 text-gray-700' />
-						</button>
-						<button
-							type='button'
-							onClick={(e) => {
-								e.stopPropagation();
-								if (window.confirm(t('deleteConfirm'))) onDelete();
-							}}
-							title={t('delete')}
-							className={`${iconBtn} bg-white/95 border-white/80`}
-						>
-							<Trash2 className='w-3.5 h-3.5 text-rose-500' />
-						</button>
-					</div>
-				) : onCopy ? (
+				{!isOwner && onCopy ? (
 					<button
 						type='button'
 						onClick={(e) => {
@@ -262,13 +222,15 @@ export function RecipeCard({
 				notebook ? 'notebook-paper' : ''
 			}`}
 		>
-			<div className='relative aspect-[4/3] shrink-0 overflow-hidden'>
-				{photo}
+			<div className='relative aspect-[4/3] shrink-0'>
+				<div className='absolute inset-0 overflow-hidden'>
+					{photo}
 				{!showPhoto && (
 					<p className={`absolute bottom-10 left-0 right-0 text-center text-xs ${theme.textSecondary} font-medium`}>
 						{t('noPhoto')}
 					</p>
 				)}
+				</div>
 
 				<div className='absolute top-3 left-3 flex items-center gap-2 z-10'>
 					{isOwner && (
@@ -313,28 +275,16 @@ export function RecipeCard({
 					</button>
 				)}
 					{isOwner && !recipe.recipe.id.startsWith('sample-') && (
-						<button
-							onClick={(e) => {
-								e.stopPropagation();
-								onToggleVisibility?.();
-							}}
-							title={
-								recipe.recipe.visibleToFriends
-									? t('visibleToFriends')
-									: t('hiddenFromFriends')
-							}
-							className={`p-2 rounded-full backdrop-blur-md border shadow-sm transition-all duration-200 ${
-								recipe.recipe.visibleToFriends
+						<VisibilityEye
+							circles={visibleCircles}
+							onChange={changeVisibility}
+							buttonClassName={`p-2 rounded-full backdrop-blur-md border shadow-sm transition-all duration-200 ${
+								visibleCircles.length
 									? 'bg-white/90 text-emerald-600 border-emerald-200 hover:bg-emerald-50'
 									: 'bg-white/90 text-gray-500 border-white/60 hover:bg-gray-100'
 							}`}
-						>
-							{recipe.recipe.visibleToFriends ? (
-								<Eye className='w-4 h-4' />
-							) : (
-								<EyeOff className='w-4 h-4' />
-							)}
-						</button>
+							iconClassName='w-4 h-4'
+						/>
 					)}
 				</div>
 

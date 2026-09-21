@@ -5,6 +5,8 @@ import { FullRecipe } from '../types';
 import { ShelfPicker } from './ShelfPicker';
 import { hasMomsShelf } from '../data/shelves';
 import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
+import { VisibilityEye } from './VisibilityEye';
+import { FriendCircle, circlesFromVisible } from '../lib/friendCircles';
 import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2, AlertCircle } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
@@ -47,6 +49,7 @@ interface RecipeDetailProps {
 	onDelete: () => void;
 	onAddToShoppingList: (name: string, qty: number, unit: string) => void;
 	onUpdate?: (recipe: FullRecipe) => void;
+	onChangeVisibility?: (circles: FriendCircle[]) => void;
 	readOnly?: boolean;
 	onCopy?: () => boolean | 'duplicate' | void;
 	extraTags?: string[];
@@ -59,6 +62,7 @@ export function RecipeDetail({
 	onDelete,
 	onAddToShoppingList,
 	onUpdate,
+	onChangeVisibility,
 	readOnly = false,
 	onCopy,
 	extraTags = [],
@@ -370,6 +374,24 @@ export function RecipeDetail({
 			>
 					<X className='w-5 h-5 text-gray-700' />
 				</button>
+
+				{!readOnly && isPersonal && onChangeVisibility && (
+					<div className='z-10 absolute top-4 left-16'>
+						<VisibilityEye
+							circles={circlesFromVisible(
+								recipe.recipe.visibleToFriends,
+								recipe.recipe.visibleCircles,
+							)}
+							onChange={onChangeVisibility}
+							buttonClassName={`p-2 rounded-full backdrop-blur-sm shadow-md border ${
+								recipe.recipe.visibleToFriends
+									? 'bg-white/90 text-emerald-600 border-emerald-200'
+									: 'bg-white/90 text-gray-500 border-white/60'
+							}`}
+							iconClassName='w-5 h-5'
+						/>
+					</div>
+				)}
 
 				{!readOnly && (
 				<div className='z-10 absolute top-4 right-4 flex gap-2'>

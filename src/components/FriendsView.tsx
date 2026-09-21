@@ -9,7 +9,14 @@ import { RecipeCard } from './RecipeCard';
 import { RecipeFilterBar, RecipeStatusFilter } from './RecipeFilterBar';
 import { RecipeLayout } from '../lib/recipeLayout';
 import { AvatarBox } from './ProfileSettings';
-import { UserPlus, Users, ArrowLeft, Loader2, Pencil, Search, Trash2 } from 'lucide-react';
+import { UserPlus, Users, ArrowLeft, Loader2, Pencil, Search, Trash2, Share2, Copy, MessageSquare } from 'lucide-react';
+import { CircleChips } from './VisibilityEye';
+import {
+  FRIEND_CIRCLES,
+  FriendCircle,
+  circleLabelKey,
+  isFriendCircle,
+} from '../lib/friendCircles';
 
 interface FriendsViewProps {
   currentUserId: string;
@@ -35,6 +42,55 @@ function friendSubtitle(friend: FriendProfile, label: string) {
   if (friend.email && friend.email !== label) return friend.email;
   if (friend.phone && friend.phone !== label) return friend.phone;
   return '';
+}
+
+function smsInviteHref(text: string) {
+  const body = encodeURIComponent(text);
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return ios ? `sms:&body=${body}` : `sms:?body=${body}`;
+}
+
+function inviteBody(template: string, name: string) {
+  return template.replace('{name}', name.trim()).replace(/\s{2,}/g, ' ').trim();
+}
+
+function inviteLine(template: string, name: string, url: string) {
+  return `${inviteBody(template, name)} ${url}`.trim();
+}
+
+function messengerLinks(text: string, url: string) {
+  const full = encodeURIComponent(`${text} ${url}`.trim());
+  return [
+    { id: 'whatsapp', label: 'WhatsApp', href: `https://wa.me/?text=${full}` },
+    {
+      id: 'telegram',
+      label: 'Telegram',
+      href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+    },
+    { id: 'viber', label: 'Viber', href: `viber://forward?text=${full}` },
+  ];
+}
+
+async function copyText(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const el = document.createElement('textarea');
+      el.value = value;
+      el.setAttribute('readonly', '');
+      el.style.position = 'fixed';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      const ok = document.execCommand('copy');
+      el.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export function FriendsView({
@@ -67,11 +123,17 @@ export function FriendsView({
   const [removingFriend, setRemovingFriend] = useState<FriendProfile | null>(null);
   const [removeStep, setRemoveStep] = useState<'confirm' | 'keep'>('confirm');
   const [removing, setRemoving] = useState(false);
+  const [circleFilter, setCircleFilter] = useState<FriendCircle | 'all'>('all');
+  const [pendingCircle, setPendingCircle] = useState<FriendCircle>('friends');
+  const [inviteTo, setInviteTo] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [myName, setMyName] = useState('');
 
   const filteredFriends = useMemo(() => {
     const q = friendSearch.trim().toLowerCase();
-    if (!q) return friends;
     return friends.filter((friend) => {
+      if (circleFilter !== 'all' && friend.circle !== circleFilter) return false;
+      if (!q) return true;
       const haystack = [
         friendLabel(friend),
         friend.nickname,
@@ -84,7 +146,7 @@ export function FriendsView({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [friends, friendSearch]);
+  }, [friends, friendSearch, circleFilter]);
 
   const filteredFriendRecipes = useMemo(() => {
     return friendRecipes.filter((r) => {
@@ -98,7 +160,7 @@ export function FriendsView({
   const loadFriends = useCallback(async () => {
     const { data: rows, error: friendError } = await supabase
       .from('friendships')
-      .select('friend_id, nickname')
+      .select('friend_id, nickname, circle')
       .eq('user_id', currentUserId);
     if (friendError) throw friendError;
 
@@ -110,6 +172,12 @@ export function FriendsView({
 
     const nickById = new Map(
       (rows ?? []).map((row) => [row.friend_id as string, (row.nickname as string | null) ?? null]),
+    );
+    const circleById = new Map(
+      (rows ?? []).map((row) => {
+        const raw = String(row.circle ?? 'friends');
+        return [row.friend_id as string, isFriendCircle(raw) ? raw : 'friends'] as const;
+      }),
     );
 
     const { data: profiles, error: profileError } = await supabase
@@ -127,8 +195,29 @@ export function FriendsView({
         username: p.username,
         nickname: nickById.get(p.id) ?? null,
         avatarUrl: p.avatar_url,
+        circle: circleById.get(p.id) ?? 'friends',
       })),
     );
+  }, [currentUserId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('display_name, username, email')
+        .eq('id', currentUserId)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const name =
+        (data.display_name as string | null)?.trim() ||
+        (data.username as string | null)?.trim() ||
+        ((data.email as string | null)?.split('@')[0] ?? '');
+      setMyName(name);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [currentUserId]);
 
   useEffect(() => {
@@ -167,12 +256,28 @@ export function FriendsView({
     return true;
   };
 
+  const saveFriendCircle = async (friendId: string, circle: FriendCircle) => {
+    const { error: updateError } = await supabase
+      .from('friendships')
+      .update({ circle })
+      .eq('user_id', currentUserId)
+      .eq('friend_id', friendId);
+    if (updateError) {
+      setError(t('authErrorGeneric'));
+      return false;
+    }
+    setFriends((prev) => prev.map((f) => (f.id === friendId ? { ...f, circle } : f)));
+    setSelectedFriend((prev) => (prev?.id === friendId ? { ...prev, circle } : prev));
+    return true;
+  };
+
   const handleAddFriend = async () => {
     const value = query.trim();
     if (!value) return;
     setAdding(true);
     setError(null);
     setMessage(null);
+    setInviteTo(null);
 
     const { data: found, error: findError } = await supabase.rpc('find_profile', { query: value });
     if (findError) {
@@ -184,7 +289,7 @@ export function FriendsView({
     const match = Array.isArray(found) ? found[0] : found;
     if (!match?.id) {
       setAdding(false);
-      setError(t('userNotFound'));
+      setInviteTo(value);
       return;
     }
 
@@ -217,9 +322,11 @@ export function FriendsView({
       username: match.username ?? null,
       nickname: null,
       avatarUrl: match.avatar_url ?? null,
+      circle: pendingCircle,
     };
     setPendingFriend(added);
     setPendingName(added.displayName || (added.username ? `@${added.username}` : ''));
+    await saveFriendCircle(added.id, pendingCircle);
     await loadFriends();
   };
 
@@ -361,6 +468,7 @@ export function FriendsView({
                 {friendSubtitle(selectedFriend, name)}
               </p>
             )}
+            <p className={`text-sm ${theme.textAccent}`}>{t(circleLabelKey(selectedFriend.circle))}</p>
           </div>
           <button
             type="button"
@@ -454,8 +562,71 @@ export function FriendsView({
             {adding ? <Loader2 className="w-5 h-5 animate-spin" /> : t('add')}
           </button>
         </div>
+        <div className="mt-3">
+          <p className={`text-sm mb-2 ${theme.textSecondary}`}>{t('friendCircle')}</p>
+          <CircleChips value={pendingCircle} onChange={setPendingCircle} />
+        </div>
         {error && <p className="text-sm text-rose-500 mt-2">{error}</p>}
         {message && <p className="text-sm text-green-600 mt-2">{message}</p>}
+        {inviteTo && (
+          <div className={`mt-3 rounded-xl border p-3 ${theme.border}`}>
+            <p className={`text-sm font-medium ${theme.textPrimary}`}>{t('inviteFriend')}</p>
+            <p className={`text-sm mt-1 ${theme.textSecondary}`}>{t('inviteFriendHint')}</p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <a
+                href={smsInviteHref(inviteLine(t('inviteMessage'), myName, window.location.origin))}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 ${theme.btnSoft} ${theme.textPrimary} text-sm font-medium`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                {t('inviteBySms')}
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setMessage(null);
+                  setShareOpen((open) => !open);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 ${theme.btnPrimary} text-sm font-medium`}
+              >
+                <Share2 className="w-4 h-4" />
+                {t('inviteShare')}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(window.location.origin);
+                  if (ok) {
+                    setError(null);
+                    setMessage(t('copied'));
+                  } else {
+                    setError(t('authErrorGeneric'));
+                  }
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 ${theme.btnSoft} ${theme.textPrimary} text-sm font-medium`}
+              >
+                <Copy className="w-4 h-4" />
+                {t('inviteCopyLink')}
+              </button>
+            </div>
+            {shareOpen && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {messengerLinks(inviteBody(t('inviteMessage'), myName), window.location.origin).map(
+                  (item) => (
+                    <a
+                      key={item.id}
+                      href={item.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center px-3 py-2 ${theme.chip} text-sm font-medium`}
+                    >
+                      {item.label}
+                    </a>
+                  ),
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {pendingFriend && (
@@ -482,6 +653,16 @@ export function FriendsView({
               {t('saveFriendName')}
             </button>
           </div>
+          <div className="mt-3">
+            <p className={`text-sm mb-2 ${theme.textSecondary}`}>{t('friendCircle')}</p>
+            <CircleChips
+              value={pendingCircle}
+              onChange={(circle) => {
+                setPendingCircle(circle);
+                void saveFriendCircle(pendingFriend.id, circle);
+              }}
+            />
+          </div>
           <button
             onClick={() => {
               setPendingFriend(null);
@@ -495,7 +676,31 @@ export function FriendsView({
       )}
 
       {friends.length > 0 && (
-        <div className="relative">
+        <>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setCircleFilter('all')}
+              className={`px-3 py-1.5 text-sm font-medium ${
+                circleFilter === 'all' ? theme.chipActive : theme.chip
+              }`}
+            >
+              {t('allCircles')}
+            </button>
+            {FRIEND_CIRCLES.map((circle) => (
+              <button
+                key={circle}
+                type="button"
+                onClick={() => setCircleFilter(circle)}
+                className={`px-3 py-1.5 text-sm font-medium ${
+                  circleFilter === circle ? theme.chipActive : theme.chip
+                }`}
+              >
+                {t(circleLabelKey(circle))}
+              </button>
+            ))}
+          </div>
+          <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
@@ -505,6 +710,7 @@ export function FriendsView({
             className={`w-full pl-12 pr-4 py-3 text-base ${theme.input}`}
           />
         </div>
+        </>
       )}
 
       <div className={`${theme.card} overflow-hidden`}>
@@ -531,7 +737,7 @@ export function FriendsView({
               return (
                 <li key={friend.id} className={`border-t first:border-t-0 ${theme.border}`}>
                   {isEditing ? (
-                    <div className="p-4 space-y-2">
+                    <div className="p-4 space-y-3">
                       <input
                         type="text"
                         value={editingName}
@@ -539,6 +745,13 @@ export function FriendsView({
                         placeholder={t('friendNamePlaceholder')}
                         className={inputCls}
                       />
+                      <div>
+                        <p className={`text-sm mb-2 ${theme.textSecondary}`}>{t('friendCircle')}</p>
+                        <CircleChips
+                          value={friend.circle}
+                          onChange={(circle) => void saveFriendCircle(friend.id, circle)}
+                        />
+                      </div>
                       <div className="flex gap-2">
                         <button
                           onClick={async () => {
@@ -573,6 +786,7 @@ export function FriendsView({
                           {subtitle && (
                             <p className={`text-base ${theme.textSecondary} truncate`}>{subtitle}</p>
                           )}
+                          <p className={`text-sm ${theme.textAccent}`}>{t(circleLabelKey(friend.circle))}</p>
                         </div>
                       </button>
                       <button

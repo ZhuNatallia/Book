@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { isDataUrl, resolveRecipeImageForDb, removeRecipePhoto, uploadRecipePhoto } from './media';
+import { isDataUrl, resolveRecipeImageForDb, removeRecipePhoto, uploadRecipePhoto, publicRecipePhotoUrl } from './media';
 import {
   FullRecipe,
   Language,
@@ -8,6 +8,7 @@ import {
   IngredientTranslation,
   StepTranslation,
 } from '../types';
+import { ALL_CIRCLES, circlesFromVisible, type FriendCircle } from './friendCircles';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,6 +56,7 @@ type RecipeRow = {
   carbs_per_serving: number | string | null;
   fat_per_serving: number | string | null;
   visible_to_friends: boolean | null;
+  visible_circles?: string[] | null;
   notes: string | null;
   last_cooked_at: string | null;
   tags: string[] | null;
@@ -139,6 +141,7 @@ export function mapRowToFullRecipe(row: RecipeRow): FullRecipe {
       fat: num(row.fat_per_serving),
       carbs: num(row.carbs_per_serving),
       visibleToFriends: row.visible_to_friends ?? true,
+      visibleCircles: circlesFromVisible(row.visible_to_friends ?? true, row.visible_circles),
       notes: row.notes ?? undefined,
       lastCookedAt: row.last_cooked_at ?? undefined,
       tags: row.tags ?? [],
@@ -188,7 +191,17 @@ export async function fetchFriendVisibleRecipes(friendId: string): Promise<FullR
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return ((data ?? []) as RecipeRow[]).map(mapRowToFullRecipe);
+  return ((data ?? []) as RecipeRow[]).map((row) => {
+    const full = mapRowToFullRecipe(row);
+    if (full.recipe.imageUrl) return full;
+    return {
+      ...full,
+      recipe: {
+        ...full.recipe,
+        imageUrl: publicRecipePhotoUrl(friendId, full.recipe.id),
+      },
+    };
+  });
 }
 
 export function cloneRecipeForUser(full: FullRecipe, userId: string): FullRecipe {
@@ -202,6 +215,7 @@ export function cloneRecipeForUser(full: FullRecipe, userId: string): FullRecipe
       copiedFromUserId: full.recipe.userId,
       status: 'want_to_cook',
       visibleToFriends: true,
+      visibleCircles: [...ALL_CIRCLES],
       notes: undefined,
       lastCookedAt: undefined,
       tags: [],
@@ -299,7 +313,8 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
   const r = full.recipe;
   const imageUrl = await resolveRecipeImageForDb(userId, recipeId, r.imageUrl);
 
-  const visibleToFriends = r.visibleToFriends ?? true;
+  const visibleCircles = circlesFromVisible(r.visibleToFriends ?? true, r.visibleCircles);
+  const visibleToFriends = visibleCircles.length > 0;
 
   const { error: recipeError } = await supabase.from('recipes').upsert({
     id: recipeId,
@@ -314,6 +329,7 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
     carbs_per_serving: parseFiniteInput(r.carbs) ?? null,
     fat_per_serving: parseFiniteInput(r.fat) ?? null,
     visible_to_friends: visibleToFriends,
+    visible_circles: visibleCircles,
     notes: r.notes || null,
     last_cooked_at: r.lastCookedAt || null,
     tags: r.tags ?? [],
@@ -324,13 +340,17 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
 
   const { data: confirmed, error: visibleError } = await supabase
     .from('recipes')
-    .update({ visible_to_friends: visibleToFriends, updated_at: now })
+    .update({
+      visible_to_friends: visibleToFriends,
+      visible_circles: visibleCircles,
+      updated_at: now,
+    })
     .eq('id', recipeId)
     .select('id, visible_to_friends')
     .maybeSingle();
   if (visibleError || !confirmed) {
     try {
-      await setRecipeVisible(recipeId, visibleToFriends);
+      await setRecipeVisibility(recipeId, visibleToFriends, visibleCircles);
     } catch (err) {
       console.error(err);
     }
@@ -433,6 +453,7 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
       userId,
       imageUrl: imageUrl ?? undefined,
       visibleToFriends,
+      visibleCircles,
       notes: r.notes,
       lastCookedAt: r.lastCookedAt,
       tags: r.tags ?? [],
@@ -447,32 +468,62 @@ export async function persistFullRecipe(userId: string, full: FullRecipe): Promi
 export type RecipeFlagPatch = {
   status?: 'want_to_cook' | 'cooked_liked';
   visibleToFriends?: boolean;
+  visibleCircles?: FriendCircle[];
   lastCookedAt?: string | null;
   notes?: string | null;
   tags?: string[];
 };
 
 export async function setRecipeVisible(recipeId: string, visible: boolean) {
-  const { error: rpcError } = await supabase.rpc('set_recipe_visible', {
+  return setRecipeVisibility(recipeId, visible, visible ? ALL_CIRCLES : []);
+}
+
+export async function setRecipeVisibility(
+  recipeId: string,
+  visible: boolean,
+  circles?: FriendCircle[],
+) {
+  const nextCircles = circlesFromVisible(visible, circles);
+  const nextVisible = nextCircles.length > 0;
+  const { error: rpcError } = await supabase.rpc('set_recipe_visibility', {
     recipe_id: recipeId,
-    visible,
+    visible: nextVisible,
+    circles: nextCircles,
   });
-  if (!rpcError) return visible;
+  if (!rpcError) return nextVisible;
 
   const { data, error } = await supabase
     .from('recipes')
-    .update({ visible_to_friends: visible, updated_at: new Date().toISOString() })
+    .update({
+      visible_to_friends: nextVisible,
+      visible_circles: nextCircles,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', recipeId)
     .select('id, visible_to_friends')
     .maybeSingle();
-  if (error) throw error;
-  if (!data) throw rpcError;
-  return data.visible_to_friends ?? visible;
+  if (error) {
+    const fallback = await supabase.rpc('set_recipe_visible', {
+      recipe_id: recipeId,
+      visible: nextVisible,
+    });
+    if (fallback.error) throw error;
+    return nextVisible;
+  }
+  if (!data) {
+    if (rpcError) throw rpcError;
+    throw new Error('recipe_visibility_update_empty');
+  }
+  return data.visible_to_friends ?? nextVisible;
 }
 
 export async function updateRecipeFlags(recipeId: string, patch: RecipeFlagPatch) {
-  if (patch.visibleToFriends !== undefined) {
-    await setRecipeVisible(recipeId, patch.visibleToFriends);
+  if (patch.visibleToFriends !== undefined || patch.visibleCircles !== undefined) {
+    const visible =
+      patch.visibleCircles !== undefined
+        ? patch.visibleCircles.length > 0
+        : Boolean(patch.visibleToFriends);
+    await setRecipeVisibility(recipeId, visible, patch.visibleCircles);
   }
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.status !== undefined) row.status = patch.status;

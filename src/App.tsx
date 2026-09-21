@@ -65,6 +65,7 @@ function AppContent() {
 		removeCopiedFromFriend,
 		toggleRecipeStatus,
 		toggleVisibility,
+		setRecipeCircles,
 		addToShoppingList,
 		toggleShoppingItem,
 		removeFromShoppingList,
@@ -360,6 +361,9 @@ function AppContent() {
 										onDelete={() => deleteRecipe(recipe.recipe.id)}
 										onToggleStatus={() => toggleRecipeStatus(recipe.recipe.id)}
 										onToggleVisibility={() => toggleVisibility(recipe.recipe.id)}
+										onChangeVisibility={(circles) =>
+											setRecipeCircles(recipe.recipe.id, circles)
+										}
 										onToggleMenu={
 											recipe.recipe.id.startsWith('sample-')
 												? undefined
@@ -450,7 +454,9 @@ function AppContent() {
 
 			{selectedRecipe && (
 				<RecipeDetail
-					recipe={selectedRecipe}
+					recipe={
+						recipes.find((r) => r.recipe.id === selectedRecipe.recipe.id) ?? selectedRecipe
+					}
 					readOnly={
 						!!selectedRecipe.recipe.userId &&
 						selectedRecipe.recipe.userId !== session.user.id
@@ -463,6 +469,9 @@ function AppContent() {
 					}}
 					onAddToShoppingList={handleAddToShoppingList}
 					onUpdate={updateRecipe}
+					onChangeVisibility={(circles) =>
+						setRecipeCircles(selectedRecipe.recipe.id, circles)
+					}
 					extraTags={extraTags}
 					onCopy={
 						selectedRecipe.recipe.userId &&

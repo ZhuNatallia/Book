@@ -3,6 +3,15 @@ import { supabase } from './supabase';
 export const RECIPE_PHOTO_BUCKET = 'recipe-photos';
 export const AVATAR_BUCKET = 'avatars';
 
+export function publicRecipePhotoUrl(userId: string, recipeId: string): string {
+  const { data } = supabase.storage.from(RECIPE_PHOTO_BUCKET).getPublicUrl(`${userId}/${recipeId}.jpg`);
+  return data.publicUrl;
+}
+
+export function isHttpUrl(value?: string | null): boolean {
+  return !!value && /^https?:\/\//i.test(value);
+}
+
 export function isDataUrl(value?: string | null): boolean {
   return !!value && value.startsWith('data:');
 }

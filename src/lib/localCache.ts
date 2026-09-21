@@ -10,6 +10,7 @@ export type SyncJob =
       patch: {
         status?: 'want_to_cook' | 'cooked_liked';
         visibleToFriends?: boolean;
+        visibleCircles?: string[];
         lastCookedAt?: string | null;
         notes?: string | null;
         tags?: string[];
@@ -36,6 +37,7 @@ export interface BookCache {
   queue: SyncJob[];
   localTouchedAt: LocalTouchedAt;
   visibilityById?: Record<string, boolean>;
+  visibilityCirclesById?: Record<string, string[]>;
 }
 
 export const EMPTY_MEAL_PLAN: MealPlan = {
@@ -73,6 +75,10 @@ export function loadBookCache(userId: string): BookCache | null {
       visibilityById:
         parsed.visibilityById && typeof parsed.visibilityById === 'object'
           ? parsed.visibilityById
+          : {},
+      visibilityCirclesById:
+        parsed.visibilityCirclesById && typeof parsed.visibilityCirclesById === 'object'
+          ? parsed.visibilityCirclesById
           : {},
     };
   } catch {
@@ -113,5 +119,6 @@ export function emptyBookCache(): BookCache {
     queue: [],
     localTouchedAt: {},
     visibilityById: {},
+    visibilityCirclesById: {},
   };
 }
