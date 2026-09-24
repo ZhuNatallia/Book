@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
@@ -265,6 +265,8 @@ export function AddRecipeModal({
   const [importingStep, setImportingStep] = useState<number>(0);
   const [duplicateRecipe, setDuplicateRecipe] = useState<FullRecipe | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const formScrollRef = useRef<HTMLDivElement>(null);
+  const scrollFormToTopRef = useRef(false);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
   const screenshotContinueRef = useRef(false);
   const skipDuplicateRef = useRef(false);
@@ -281,6 +283,7 @@ export function AddRecipeModal({
   const [ingredients, setIngredients] = useState([{ quantity: '1', unit: 'g', name: '' }]);
   const [steps, setSteps] = useState([{ instruction: '', timerMinutes: '' as string }]);
   const [recordingStep, setRecordingStep] = useState<number | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const recognitionRef = useRef<{ stop: () => void; abort: () => void } | null>(null);
 
   const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
@@ -344,6 +347,17 @@ export function AddRecipeModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingRecipe, language]);
 
+  useLayoutEffect(() => {
+    if (!scrollFormToTopRef.current) return;
+    scrollFormToTopRef.current = false;
+    const el = formScrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    requestAnimationFrame(() => {
+      if (formScrollRef.current) formScrollRef.current.scrollTop = 0;
+    });
+  });
+
   const stopStepVoice = () => {
     try {
       recognitionRef.current?.abort();
@@ -386,46 +400,77 @@ export function AddRecipeModal({
     const SpeechRecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognitionCtor) {
-      alert(t('voiceUnsupported'));
+      setVoiceError(t('voiceUnsupported'));
       setRecordingStep(null);
       return;
     }
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
-    recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript.trim();
-      if (!transcript) return;
+    let committed = steps[idx]?.instruction.trim() ?? '';
+    let sessionFinal = '';
+
+    const writeSpoken = (extra: string) => {
+      const spoken = extra.trim();
+      const merged = committed && spoken ? `${committed} ${spoken}` : committed || spoken;
+      if (!merged) return;
       setSteps((prev) =>
-        prev.map((s, i) => {
-          if (i !== idx) return s;
-          const merged = s.instruction.trim()
-            ? `${s.instruction.trim()} ${transcript}`
-            : transcript;
-          return { ...s, instruction: capitalizeFirst(merged) };
-        }),
+        prev.map((s, i) => (i === idx ? { ...s, instruction: capitalizeFirst(merged) } : s)),
       );
     };
-    recognition.onerror = () => {
+
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interim = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const piece = event.results[i][0]?.transcript ?? '';
+        if (event.results[i].isFinal) finalText += piece;
+        else interim += piece;
+      }
+      sessionFinal = finalText;
+      writeSpoken(`${finalText} ${interim}`);
+    };
+    recognition.onerror = (event) => {
+      const code = (event as Event & { error?: string }).error ?? '';
+      if (code === 'aborted' || code === 'no-speech') return;
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        setVoiceError(t('voiceMicDenied'));
+      } else {
+        setVoiceError(t('voiceListenFailed'));
+      }
       if (recognitionRef.current === recognition) {
         recognitionRef.current = null;
         setRecordingStep(null);
       }
     };
     recognition.onend = () => {
-      if (recognitionRef.current === recognition) {
+      if (recognitionRef.current !== recognition) return;
+      const said = sessionFinal.trim();
+      if (said) committed = committed ? `${committed} ${said}` : said;
+      sessionFinal = '';
+      try {
+        recognition.start();
+      } catch {
         recognitionRef.current = null;
         setRecordingStep(null);
+        setVoiceError(t('voiceListenFailed'));
       }
     };
 
     recognitionRef.current = recognition;
+    setVoiceError(null);
     setRecordingStep(idx);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setRecordingStep(null);
+      setVoiceError(t('voiceListenFailed'));
+    }
   };
 
   const addIngredient = () => setIngredients([...ingredients, { quantity: '1', unit: 'g', name: '' }]);
@@ -729,6 +774,7 @@ export function AddRecipeModal({
     );
     if (parsed.imageUrl) setImageUrl(parsed.imageUrl);
     if (importUrl.trim()) setSourceUrl(importUrl);
+    scrollFormToTopRef.current = true;
     setActiveTab('manual');
     setParseResults([]);
     setSelectedParsed([]);
@@ -963,7 +1009,7 @@ export function AddRecipeModal({
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div ref={formScrollRef} className="flex-1 overflow-y-auto p-4 [overflow-anchor:none]">
           {(isEditMode || activeTab === 'manual') ? (
             <div className="space-y-4">
               {/* Title */}
@@ -1126,6 +1172,9 @@ export function AddRecipeModal({
               {/* Steps */}
               <div>
                 <label className={`block text-base font-medium ${theme.label} mb-2`}>{t('steps')}</label>
+                {voiceError && (
+                  <p className="mb-2 text-sm text-red-600">{voiceError}</p>
+                )}
                 <div className="space-y-2">
                   {steps.map((step, idx) => (
                     <div key={idx} className="flex items-start gap-2">
@@ -1173,9 +1222,29 @@ export function AddRecipeModal({
                   className={`w-full px-4 py-3 ${theme.input} border ${theme.borderAccent} ring-1 ring-[var(--accent)] ${theme.inputPlaceholder} text-base disabled:opacity-50 focus:ring-2 focus:ring-[var(--accent)]`}
                   placeholder={t('importUrlPlaceholder')}
                 />
-                <button onClick={() => handleImportUrl(false)} disabled={!importUrl.trim() || isParsing || !online || !canImport} className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}>
-                  <Download className="w-5 h-5" />
-                  {t('importAction')}
+                <button
+                  onClick={() => handleImportUrl(false)}
+                  disabled={!importUrl.trim() || isParsing || !online || !canImport}
+                  aria-busy={isParsing && loadingPlatform !== 'screenshot'}
+                  className={`mt-3 w-full py-3 ${theme.btnPrimary} font-medium flex items-center justify-center gap-2 text-center leading-snug ${
+                    isParsing && loadingPlatform !== 'screenshot'
+                      ? ''
+                      : 'disabled:opacity-50 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {isParsing && loadingPlatform !== 'screenshot' ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
+                      {loadingPlatform
+                        ? `${t('importingFrom')} ${loadingPlatform}…`
+                        : `${t('importingFrom')}…`}
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-5 h-5" />
+                      {t('importAction')}
+                    </>
+                  )}
                 </button>
                 {!canImport && (
                   <p className={`mt-2 text-sm ${theme.textSecondary}`}>

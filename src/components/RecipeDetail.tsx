@@ -30,6 +30,61 @@ function videoSourceLabel(url?: string) {
 // Units are stored in canonical form and rendered from the dictionary of the active language
 const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 
+const foldVoice = (text: string) =>
+	text
+		.toLowerCase()
+		.replace(/ё/g, 'е')
+		.normalize('NFD')
+		.replace(/\p{M}/gu, '')
+		.replace(/[.!?,…'’«»"]+/g, ' ');
+
+const STOP_WORDS = [
+	'стоп',
+	'stop',
+	'stopp',
+	'тоқта',
+	'pare',
+	'останови',
+	'остановись',
+	'хватит',
+	'stój',
+	'stoj',
+	'ferma',
+	'para',
+	'arrête',
+	'arrete',
+	'arrêt',
+	'arret',
+];
+
+const NEXT_WORDS = [
+	'дальше',
+	'продолжай',
+	'продолжи',
+	'continue',
+	'next',
+	'weiter',
+	'далі',
+	'dalej',
+	'avanti',
+	'sigue',
+	'suivant',
+	'әрі',
+	'әрі қарай',
+	'жалғастыр',
+];
+
+const voiceTokens = (text: string) => foldVoice(text).split(/\s+/).filter(Boolean);
+
+const matchesVoice = (text: string, words: string[]) => {
+	const folded = foldVoice(text);
+	const tokens = voiceTokens(text);
+	return words.some((word) => {
+		const foldedWord = foldVoice(word);
+		return foldedWord.includes(' ') ? folded.includes(foldedWord) : tokens.includes(foldedWord);
+	});
+};
+
 const SPEECH_LOCALES: Record<string, string> = {
 	ru: 'ru-RU',
 	en: 'en-US',
@@ -86,6 +141,30 @@ export function RecipeDetail({
 	const [photoOpen, setPhotoOpen] = useState(false);
 	const [currentStepIndex, setCurrentStepIndex] = useState(0);
 	const [isSpeaking, setIsSpeaking] = useState(false);
+	const [listenError, setListenError] = useState<string | null>(null);
+	const [stopReady, setStopReady] = useState(false);
+	const [voicePaused, setVoicePaused] = useState(false);
+	const readingRef = useRef(false);
+	const voicePausedRef = useRef(false);
+	const bargeHold = useRef(false);
+	const continueAfter = useRef(0);
+	const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+	const listenRef = useRef<SpeechRecognition | null>(null);
+	const listenGen = useRef(0);
+	const localListenRef = useRef<{ stop: () => Promise<void> } | null>(null);
+	const localMode = useRef(false);
+	const preparedStop = useRef<Promise<{
+		wordLabels: () => string[];
+		listen: (
+			callback: (result: { scores: ArrayLike<number> }) => void,
+			options?: {
+				overlapFactor?: number;
+				probabilityThreshold?: number;
+				invokeCallbackOnNoiseAndUnknown?: boolean;
+			},
+		) => Promise<void>;
+		stopListening: () => Promise<void>;
+	} | null> | null>(null);
 	const [timer, setTimer] = useState<{ stepId: string; remaining: number; running: boolean } | null>(null);
 	const beepCtx = useRef<AudioContext | null>(null);
 
@@ -110,6 +189,8 @@ export function RecipeDetail({
 		} catch {
 			/* ignore */
 		}
+		const spoken = title === t('timerDone') ? title : `${t('timerDone')}. ${title}`;
+		void speakAlert(spoken);
 		if ('Notification' in window) {
 			if (Notification.permission === 'default') {
 				try {
@@ -130,6 +211,21 @@ export function RecipeDetail({
 
 	useEffect(() => {
 		return () => {
+			readingRef.current = false;
+			voicePausedRef.current = false;
+			try {
+				listenRef.current?.abort();
+			} catch {
+				/* already stopped */
+			}
+			listenRef.current = null;
+			const local = localListenRef.current;
+			localListenRef.current = null;
+			try {
+				void local?.stop()?.catch(() => undefined);
+			} catch {
+				/* already stopped */
+			}
 			if ('speechSynthesis' in window) speechSynthesis.cancel();
 		};
 	}, []);
@@ -228,6 +324,23 @@ export function RecipeDetail({
 		const cooking = activeTab === 'steps' && !showWatchInsteadOfSteps;
 		const keepAwake = cooking || !!timer?.running;
 		if (!cooking) {
+			readingRef.current = false;
+			voicePausedRef.current = false;
+			setVoicePaused(false);
+			utteranceRef.current = null;
+			try {
+				listenRef.current?.abort();
+			} catch {
+				/* already stopped */
+			}
+			listenRef.current = null;
+			const local = localListenRef.current;
+			localListenRef.current = null;
+			try {
+				void local?.stop()?.catch(() => undefined);
+			} catch {
+				/* already stopped */
+			}
 			if ('speechSynthesis' in window) speechSynthesis.cancel();
 			setIsSpeaking(false);
 		}
@@ -257,29 +370,330 @@ export function RecipeDetail({
 		};
 	}, [activeTab, showWatchInsteadOfSteps, timer?.running]);
 
+	const stepsRef = useRef(realSteps);
+	stepsRef.current = realSteps;
+	const langRef = useRef(language);
+	langRef.current = language;
+	const indexRef = useRef(currentStepIndex);
+
+	const loadVoices = () => {
+		const synth = window.speechSynthesis;
+		const existing = synth.getVoices();
+		if (existing.length) return Promise.resolve(existing);
+		return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+			const finish = () => {
+				synth.removeEventListener('voiceschanged', finish);
+				resolve(synth.getVoices());
+			};
+			synth.addEventListener('voiceschanged', finish);
+			window.setTimeout(finish, 700);
+		});
+	};
+
+	const voiceFor = (voices: SpeechSynthesisVoice[], lang: string) => {
+		const locale = (SPEECH_LOCALES[lang] || 'ru-RU').toLowerCase();
+		const prefix = lang.toLowerCase();
+		return (
+			voices.find((v) => v.lang.toLowerCase() === locale) ||
+			voices.find((v) => v.lang.toLowerCase().replace('_', '-').startsWith(prefix)) ||
+			null
+		);
+	};
+
+	const isStopCommand = (text: string) => matchesVoice(text, STOP_WORDS);
+	const isNextCommand = (text: string) => matchesVoice(text, NEXT_WORDS);
+
+	const stopListening = () => {
+		listenGen.current += 1;
+		localMode.current = false;
+		setStopReady(false);
+		const rec = listenRef.current;
+		listenRef.current = null;
+		const local = localListenRef.current;
+		localListenRef.current = null;
+		try {
+			void local?.stop()?.catch(() => undefined);
+		} catch {
+			/* already stopped */
+		}
+		if (!rec) return;
+		try {
+			rec.abort();
+		} catch {
+			/* already stopped */
+		}
+	};
+
+	const startLocalStop = async (generation: number) => {
+		if (localListenRef.current || generation !== listenGen.current) return;
+		if (!readingRef.current && !voicePausedRef.current) return;
+		try {
+			const recognizer = await prepareStopModel();
+			if (!recognizer || generation !== listenGen.current || localListenRef.current) return;
+			if (!readingRef.current && !voicePausedRef.current) return;
+			const labels = recognizer.wordLabels();
+			const stopAt = labels.indexOf('stop');
+			const goAt = labels.indexOf('go');
+			const ignore = new Set(['_background_noise_', '_unknown_']);
+			let hits = 0;
+			let holdUntil = 0;
+			const handle = { stop: () => recognizer.stopListening() };
+			localListenRef.current = handle;
+			await recognizer.listen(
+				(result) => {
+					if (stopAt < 0) return;
+					const scores = Array.from(result.scores as ArrayLike<number>);
+					let best = -1;
+					for (let i = 0; i < scores.length; i++) {
+						if (ignore.has(labels[i])) continue;
+						if (best < 0 || Number(scores[i]) > Number(scores[best])) best = i;
+					}
+					if (voicePausedRef.current) {
+						if (performance.now() < continueAfter.current) return;
+						const goScore = goAt >= 0 ? Number(scores[goAt] ?? 0) : 0;
+						if (goScore >= 0.25 && best === goAt) resumeReading();
+						return;
+					}
+					if (!readingRef.current) return;
+					const score = Number(scores[stopAt] ?? 0);
+					const heard = best === stopAt && score >= 0.2;
+					const now = performance.now();
+					if (!heard) {
+						if (now < holdUntil) return;
+						hits = 0;
+						bargeHold.current = false;
+						if (speechSynthesis.paused && readingRef.current) speechSynthesis.resume();
+						return;
+					}
+					hits += 1;
+					if (speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.pause();
+					bargeHold.current = true;
+					holdUntil = now + 900;
+					if (score >= 0.35 || hits >= 2) pauseByVoice();
+				},
+				{
+					overlapFactor: 0.5,
+					probabilityThreshold: 0.15,
+					invokeCallbackOnNoiseAndUnknown: true,
+				},
+			);
+			setStopReady(true);
+			if (localListenRef.current !== handle) return;
+			if (generation !== listenGen.current || (!readingRef.current && !voicePausedRef.current)) {
+				localListenRef.current = null;
+				void recognizer.stopListening().catch(() => undefined);
+			}
+		} catch {
+			if (voicePausedRef.current || localListenRef.current === null) return;
+			if (readingRef.current && generation === listenGen.current) {
+				setListenError(t('voiceListenFailed'));
+			}
+		}
+	};
+
+	const prepareStopModel = () => {
+		if (!preparedStop.current) {
+			preparedStop.current = (async () => {
+				await import('@tensorflow/tfjs');
+				const speechCommands = await import('@tensorflow-models/speech-commands');
+				const recognizer = speechCommands.create('BROWSER_FFT');
+				await recognizer.ensureModelLoaded();
+				return recognizer;
+			})().catch(() => null);
+		}
+		return preparedStop.current;
+	};
+
+	useEffect(() => {
+		if (activeTab === 'steps' && !showWatchInsteadOfSteps) void prepareStopModel();
+	}, [activeTab, showWatchInsteadOfSteps]);
+
+	const startListening = () => {
+		const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+		if (!Ctor) {
+			localMode.current = true;
+			void startLocalStop(listenGen.current);
+			return;
+		}
+		if (listenRef.current || localMode.current) return;
+		const generation = listenGen.current;
+		let cloudDead = false;
+		const recognition = new Ctor();
+		recognition.lang = SPEECH_LOCALES[langRef.current] || 'ru-RU';
+		recognition.interimResults = true;
+		recognition.continuous = true;
+		recognition.maxAlternatives = 3;
+		recognition.onresult = (event) => {
+			if (!readingRef.current && !voicePausedRef.current) return;
+			for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
+				const row = event.results[i];
+				const options = Math.max(row.length ?? 1, 1);
+				for (let alt = 0; alt < options; alt++) {
+					const text = row[alt]?.transcript ?? '';
+					if (isStopCommand(text)) {
+						pauseByVoice();
+						return;
+					}
+					if (isNextCommand(text)) {
+						if (performance.now() < continueAfter.current) return;
+						resumeReading();
+						return;
+					}
+				}
+			}
+		};
+		recognition.onerror = (event) => {
+			const code = (event as Event & { error?: string }).error ?? '';
+			if (code === 'not-allowed' || code === 'service-not-allowed') {
+				setListenError(t('voiceMicDenied'));
+				if (listenRef.current === recognition) listenRef.current = null;
+				return;
+			}
+			if (code === 'aborted' || code === 'no-speech') return;
+			if (code === 'network') {
+				cloudDead = true;
+				if (listenRef.current === recognition) listenRef.current = null;
+				if (voicePausedRef.current) {
+					window.setTimeout(() => {
+						if (!voicePausedRef.current || generation !== listenGen.current) return;
+						startListening();
+					}, 700);
+					return;
+				}
+				localMode.current = true;
+				void startLocalStop(generation);
+			}
+		};
+		recognition.onend = () => {
+			if (listenRef.current === recognition) listenRef.current = null;
+			if (cloudDead || localMode.current) return;
+			const keep = readingRef.current || voicePausedRef.current;
+			if (!keep || generation !== listenGen.current) return;
+			window.setTimeout(() => {
+				if (!(readingRef.current || voicePausedRef.current) || generation !== listenGen.current) return;
+				startListening();
+			}, 300);
+		};
+		listenRef.current = recognition;
+		try {
+			recognition.start();
+		} catch {
+			listenRef.current = null;
+			window.setTimeout(() => {
+				if (!(readingRef.current || voicePausedRef.current) || generation !== listenGen.current) return;
+				startListening();
+			}, 300);
+		}
+	};
+
+	const pauseByVoice = () => {
+		if (!readingRef.current) return;
+		readingRef.current = false;
+		utteranceRef.current = null;
+		voicePausedRef.current = true;
+		bargeHold.current = false;
+		continueAfter.current = performance.now() + 1600;
+		localMode.current = false;
+		setVoicePaused(true);
+		setIsSpeaking(false);
+		setStopReady(true);
+		if ('speechSynthesis' in window) speechSynthesis.cancel();
+		const rec = listenRef.current;
+		listenRef.current = null;
+		try {
+			rec?.abort();
+		} catch {
+			/* already stopped */
+		}
+		startListening();
+		void startLocalStop(listenGen.current);
+	};
+
+	const resumeReading = () => {
+		if (!voicePausedRef.current) return;
+		voicePausedRef.current = false;
+		setVoicePaused(false);
+		readFrom(indexRef.current);
+	};
+
 	const stopReading = () => {
+		readingRef.current = false;
+		voicePausedRef.current = false;
+		setVoicePaused(false);
+		utteranceRef.current = null;
+		stopListening();
 		if ('speechSynthesis' in window) speechSynthesis.cancel();
 		setIsSpeaking(false);
 	};
 
-	const readCurrentStep = () => {
-		if (!('speechSynthesis' in window) || realSteps.length === 0) return;
-		const idx = Math.min(currentStepIndex, realSteps.length - 1);
-		const text = getStepInstruction(realSteps[idx]).trim();
-		if (!text) return;
+	const speakText = async (text: string, chain: boolean) => {
+		if (!('speechSynthesis' in window) || !text.trim()) return;
+		const voices = await loadVoices();
+		if (chain && !readingRef.current) return;
+		utteranceRef.current = null;
 		speechSynthesis.cancel();
 		const utterance = new SpeechSynthesisUtterance(text);
-		utterance.lang = SPEECH_LOCALES[language] || 'ru-RU';
+		utteranceRef.current = utterance;
+		utterance.lang = SPEECH_LOCALES[langRef.current] || 'ru-RU';
 		utterance.rate = 0.9;
-		const prefix = language.toLowerCase();
-		const voice = speechSynthesis
-			.getVoices()
-			.find((v) => v.lang.toLowerCase().startsWith(prefix));
+		const voice = voiceFor(voices, langRef.current);
 		if (voice) utterance.voice = voice;
-		utterance.onend = () => setIsSpeaking(false);
-		utterance.onerror = () => setIsSpeaking(false);
+		utterance.onend = () => {
+			if (utteranceRef.current !== utterance) return;
+			if (!chain || !readingRef.current) {
+				setIsSpeaking(false);
+				return;
+			}
+			const next = indexRef.current + 1;
+			if (next < stepsRef.current.length) {
+				indexRef.current = next;
+				setCurrentStepIndex(next);
+				const nextText = getStepInstruction(stepsRef.current[next]).trim();
+				if (nextText) void speakText(nextText, true);
+				else stopReading();
+			} else {
+				stopReading();
+			}
+		};
+		utterance.onerror = () => {
+			if (utteranceRef.current !== utterance) return;
+		};
 		setIsSpeaking(true);
 		speechSynthesis.speak(utterance);
+		window.setTimeout(() => {
+			if (bargeHold.current) return;
+			if (speechSynthesis.paused && readingRef.current) speechSynthesis.resume();
+		}, 250);
+	};
+
+	const speakAlert = (text: string) => {
+		readingRef.current = false;
+		stopListening();
+		void speakText(text, false);
+	};
+
+	const readFrom = (idx: number) => {
+		const steps = stepsRef.current;
+		if (!('speechSynthesis' in window) || steps.length === 0) return;
+		const safe = Math.min(Math.max(idx, 0), steps.length - 1);
+		const text = getStepInstruction(steps[safe]).trim();
+		if (!text) return;
+		readingRef.current = true;
+		indexRef.current = safe;
+		setListenError(null);
+		setCurrentStepIndex(safe);
+		const AudioCtx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (AudioCtx) {
+			if (!beepCtx.current) beepCtx.current = new AudioCtx();
+			void beepCtx.current.resume();
+		}
+		void startLocalStop(listenGen.current);
+		startListening();
+		void speakText(text, true);
+	};
+
+	const readCurrentStep = () => {
+		readFrom(indexRef.current);
 	};
 
 	const toggleIngredientCheck = (id: string) => {
@@ -694,11 +1108,25 @@ export function RecipeDetail({
 										: `${t('readStep')} ${Math.min(currentStepIndex, realSteps.length - 1) + 1}`}
 								</button>
 							)}
+							{(isSpeaking || voicePaused) && !listenError && (
+								<p className={`text-center text-sm ${theme.textSecondary} ${notebook ? 'mb-4' : '-mt-2'}`}>
+									{voicePaused ? t('voiceSayNext') : stopReady ? t('voiceSayStop') : t('voiceStopArming')}
+								</p>
+							)}
+							{listenError && (
+								<p className={`text-center text-sm text-red-600 ${notebook ? 'mb-4' : '-mt-2'}`}>
+									{listenError}
+								</p>
+							)}
 							{realSteps.map((step, idx) => (
 								<button
 									type='button'
 									key={step.id}
-									onClick={() => setCurrentStepIndex(idx)}
+									onClick={() => {
+										indexRef.current = idx;
+										if (readingRef.current) readFrom(idx);
+										else setCurrentStepIndex(idx);
+									}}
 									className={
 										notebook
 											? `notebook-hand notebook-step ${idx === currentStepIndex ? 'is-current' : ''}`

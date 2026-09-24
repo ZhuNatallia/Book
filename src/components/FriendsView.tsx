@@ -25,6 +25,7 @@ interface FriendsViewProps {
   onDiscardCopiedFromFriend: (friendId: string) => void;
   recipeLayout: RecipeLayout;
   onRecipeLayoutChange: (layout: RecipeLayout) => void;
+  homeRequest: number;
 }
 
 function friendLabel(friend: FriendProfile) {
@@ -100,6 +101,7 @@ export function FriendsView({
   onDiscardCopiedFromFriend,
   recipeLayout,
   onRecipeLayoutChange,
+  homeRequest,
 }: FriendsViewProps) {
   const { t } = useLanguage();
   const { theme } = useTheme();
@@ -128,6 +130,10 @@ export function FriendsView({
   const [inviteTo, setInviteTo] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [myName, setMyName] = useState('');
+
+  useEffect(() => {
+    setSelectedFriend(null);
+  }, [homeRequest]);
 
   const filteredFriends = useMemo(() => {
     const q = friendSearch.trim().toLowerCase();

@@ -170,6 +170,7 @@ export interface SpeechRecognition extends EventTarget {
 }
 
 export interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
   results: SpeechRecognitionResultList;
 }
 

@@ -85,6 +85,7 @@ function AppContent() {
 	}, [recipes, syncRecipeCount]);
 
 	const [activeView, setActiveView] = useState<AppView>('recipes');
+	const [friendsHomeRequest, setFriendsHomeRequest] = useState(0);
 	const [showFridge, setShowFridge] = useState(false);
 	const [selectedRecipe, setSelectedRecipe] = useState<FullRecipe | null>(null);
 	const [showAddModal, setShowAddModal] = useState(false);
@@ -437,6 +438,7 @@ function AppContent() {
 						}}
 						recipeLayout={recipeLayout}
 						onRecipeLayoutChange={setRecipeLayout}
+						homeRequest={friendsHomeRequest}
 					/>
 					) : (
 						<p className={`text-center py-12 ${theme.textSecondary}`}>{t('offlineHint')}</p>
@@ -448,6 +450,9 @@ function AppContent() {
 				activeView={activeView}
 				onViewChange={(view) => {
 					setShowFridge(false);
+					if (view === 'friends' && activeView === 'friends') {
+						setFriendsHomeRequest((n) => n + 1);
+					}
 					setActiveView(view);
 				}}
 			/>
