@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -38,6 +42,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         runtimeCaching: [
           {
@@ -52,6 +57,15 @@ export default defineConfig({
       },
     }),
   ],
+  resolve: {
+    alias: {
+      // The package "module" build imports Node's util.promisify and breaks the browser bundle.
+      '@tensorflow-models/speech-commands': path.join(
+        root,
+        'node_modules/@tensorflow-models/speech-commands/dist/index.js',
+      ),
+    },
+  },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
