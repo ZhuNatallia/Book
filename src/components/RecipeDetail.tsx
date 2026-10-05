@@ -6,8 +6,9 @@ import { ShelfPicker } from './ShelfPicker';
 import { hasMomsShelf } from '../data/shelves';
 import { isSampleRecipeId, parseFiniteInput } from '../lib/recipeDb';
 import { VisibilityEye } from './VisibilityEye';
+import { NutritionCalculator } from './NutritionCalculator';
 import { FriendCircle, circlesFromVisible } from '../lib/friendCircles';
-import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2, AlertCircle } from 'lucide-react';
+import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2, AlertCircle, Calculator } from 'lucide-react';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -139,6 +140,7 @@ export function RecipeDetail({
 	const [notes, setNotes] = useState(recipe.recipe.notes || '');
 	const [imgFailed, setImgFailed] = useState(false);
 	const [photoOpen, setPhotoOpen] = useState(false);
+	const [nutritionOpen, setNutritionOpen] = useState(false);
 	const [currentStepIndex, setCurrentStepIndex] = useState(0);
 	const [isSpeaking, setIsSpeaking] = useState(false);
 	const [listenError, setListenError] = useState<string | null>(null);
@@ -978,6 +980,17 @@ export function RecipeDetail({
 							)}
 						</div>
 					)}
+
+					{isPersonal && onUpdate && realIngredients.length > 0 && (
+						<button
+							type='button'
+							onClick={() => setNutritionOpen(true)}
+							className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium ${theme.btnSoft}`}
+						>
+							<Calculator className='w-4 h-4' />
+							{kcal != null ? t('nutritionRecalc') : t('nutritionCalc')}
+						</button>
+					)}
 				</div>
 
 				{scaling !== 1 && (
@@ -1210,6 +1223,26 @@ export function RecipeDetail({
 					)}
 				</div>
 			</div>
+			{nutritionOpen && (
+				<NutritionCalculator
+					recipe={recipe}
+					onClose={() => setNutritionOpen(false)}
+					onSave={(values) => {
+						setNutritionOpen(false);
+						onUpdate?.({
+							...recipe,
+							recipe: {
+								...recipe.recipe,
+								calories: values.kcal,
+								protein: values.protein,
+								fat: values.fat,
+								carbs: values.carbs,
+								updatedAt: new Date().toISOString(),
+							},
+						});
+					}}
+				/>
+			)}
 			{photoOpen && recipe.recipe.imageUrl && (
 				<button
 					type="button"
