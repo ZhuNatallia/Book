@@ -111,7 +111,10 @@ const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 const UNIT_ALT =
   'килограмм[а-яё]*|миллилитр[а-яё]*|грамм[а-яё]*|литр[а-яё]*|штук[а-яё]*|стакан[а-яё]*|щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым|ст\\.?\\s*л\\.?|ч\\.?\\s*л\\.?|гр|кг|мл|шт|г|л|kg|ml|pcs|piece|cup|tbsp|tsp|oz|lb|g|l';
 
-const QTY = '\\d+(?:[/.,]\\d+)?';
+const QTY_ONE = '\\d+(?:[/.,]\\d+)?';
+// "320–350 г" is one amount. The dash (hyphen, en dash or em dash) stays inside the quantity,
+// otherwise only "320" is read and "г" after the second number is lost, so the line is saved as 320 pieces.
+const QTY = `${QTY_ONE}(?:\\s*[–—−-]\\s*${QTY_ONE})?`;
 
 // "2 cups flour", "1/4 tsp salt", "400 г муки". The unit group requires a following space or
 // end-of-string, otherwise a bare "л"/"г" would swallow the first letter of a word
@@ -121,12 +124,19 @@ const LEADING_QTY_RE = new RegExp(`^(${QTY})\\s*(?:(${UNIT_ALT})(?=\\s|$))?\\s*(
 // "Куриные бедрышки 500 грамм", "Яйцо 1 шт." — quantity trails the name instead of leading it.
 const TRAILING_QTY_RE = new RegExp(`^(.*?)[\\s,\\-–—]+(${QTY})\\s*(${UNIT_ALT})\\.?\\s*$`, 'i');
 
-function toQuantity(raw: string): number {
+function singleQuantity(raw: string): number {
   if (raw.includes('/')) {
     const p = raw.split('/');
     return parseFloat(p[0]) / parseFloat(p[1] || '1');
   }
   return parseFloat(raw.replace(',', '.')) || 1;
+}
+
+function toQuantity(raw: string): number {
+  const range = raw.match(/^(\d+(?:[/.,]\d+)?)\s*[–—−-]\s*(\d+(?:[/.,]\d+)?)$/);
+  if (!range) return singleQuantity(raw);
+  const mid = (singleQuantity(range[1]) + singleQuantity(range[2])) / 2;
+  return Number.isFinite(mid) ? Math.round(mid * 10) / 10 : 1;
 }
 
 function parseIngredientString(raw: string): { quantity: number; unit: string; name: string } {
