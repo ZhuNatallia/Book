@@ -81,38 +81,61 @@ const STOP_WORDS = [
 	'күте тұр',
 ];
 
+// After a pause: these move on to the following step...
 const NEXT_WORDS = [
 	'дальше',
 	'далее',
-	'продолжай',
-	'продолжи',
 	'следующий',
-	'continue',
 	'next',
-	'go on',
 	'weiter',
 	'nächster',
 	'далі',
-	'продовжуй',
-	'продовж',
 	'наступний',
 	'dalej',
-	'kontynuuj',
 	'następny',
 	'avanti',
-	'continua',
 	'prossimo',
-	'sigue',
 	'siguiente',
-	'continúa',
 	'adelante',
 	'suivant',
-	'continuez',
 	'la suite',
 	'әрі',
 	'әрі қарай',
-	'жалғастыр',
 	'келесі',
+];
+
+// ...and these read the interrupted step again from its start.
+const REPEAT_WORDS = [
+	'продолжай',
+	'продолжи',
+	'повтори',
+	'ещё раз',
+	'continue',
+	'go on',
+	'repeat',
+	'again',
+	'nochmal',
+	'noch einmal',
+	'wiederhole',
+	'продовжуй',
+	'продовж',
+	'ще раз',
+	'kontynuuj',
+	'powtórz',
+	'jeszcze raz',
+	'continua',
+	'ripeti',
+	'ancora',
+	'sigue',
+	'continúa',
+	'repite',
+	'otra vez',
+	'continuez',
+	'répète',
+	'répétez',
+	'encore',
+	'жалғастыр',
+	'қайтала',
 ];
 
 const voiceTokens = (text: string) => foldVoice(text).split(/\s+/).filter(Boolean);
@@ -453,6 +476,7 @@ export function RecipeDetail({
 		return matchesVoice(text, STOP_WORDS, reading ? getStepInstruction(reading) : '');
 	};
 	const isNextCommand = (text: string) => matchesVoice(text, NEXT_WORDS);
+	const isRepeatCommand = (text: string) => matchesVoice(text, REPEAT_WORDS);
 
 	const stopListening = () => {
 		listenGen.current += 1;
@@ -502,7 +526,7 @@ export function RecipeDetail({
 					if (voicePausedRef.current) {
 						if (performance.now() < continueAfter.current) return;
 						const goScore = goAt >= 0 ? Number(scores[goAt] ?? 0) : 0;
-						if (goScore >= 0.25 && best === goAt) resumeReading();
+						if (goScore >= 0.25 && best === goAt) resumeReading('same');
 						return;
 					}
 					if (!readingRef.current) return;
@@ -585,9 +609,10 @@ export function RecipeDetail({
 						pauseByVoice();
 						return;
 					}
-					if (isNextCommand(text)) {
+					const resume = isNextCommand(text) ? 'next' : isRepeatCommand(text) ? 'same' : null;
+					if (resume) {
 						if (performance.now() < continueAfter.current) return;
-						resumeReading();
+						resumeReading(resume);
 						return;
 					}
 				}
@@ -660,11 +685,17 @@ export function RecipeDetail({
 		void startLocalStop(listenGen.current);
 	};
 
-	const resumeReading = () => {
+	const resumeReading = (target: 'same' | 'next') => {
 		if (!voicePausedRef.current) return;
 		voicePausedRef.current = false;
 		setVoicePaused(false);
-		readFrom(indexRef.current);
+		if (target === 'same') {
+			readFrom(indexRef.current);
+			return;
+		}
+		const next = indexRef.current + 1;
+		if (next < stepsRef.current.length) readFrom(next);
+		else stopReading();
 	};
 
 	const stopReading = () => {
