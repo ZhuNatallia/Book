@@ -43,46 +43,88 @@ const STOP_WORDS = [
 	'стоп',
 	'stop',
 	'stopp',
-	'тоқта',
-	'pare',
+	'pause',
+	'пауза',
+	'pausa',
+	'pauza',
 	'останови',
 	'остановись',
+	'подожди',
 	'хватит',
+	'зупинись',
+	'зупини',
+	'зачекай',
+	'досить',
+	'wait',
+	'hold on',
+	'halt',
+	'warte',
 	'stój',
 	'stoj',
+	'czekaj',
 	'ferma',
+	'fermati',
+	'aspetta',
+	'basta',
 	'para',
+	'pare',
+	'detente',
+	'espera',
+	'alto',
 	'arrête',
 	'arrete',
 	'arrêt',
 	'arret',
+	'attends',
+	'тоқта',
+	'тоқтат',
+	'күте тұр',
 ];
 
 const NEXT_WORDS = [
 	'дальше',
+	'далее',
 	'продолжай',
 	'продолжи',
+	'следующий',
 	'continue',
 	'next',
+	'go on',
 	'weiter',
+	'nächster',
 	'далі',
+	'продовжуй',
+	'продовж',
+	'наступний',
 	'dalej',
+	'kontynuuj',
+	'następny',
 	'avanti',
+	'continua',
+	'prossimo',
 	'sigue',
+	'siguiente',
+	'continúa',
+	'adelante',
 	'suivant',
+	'continuez',
+	'la suite',
 	'әрі',
 	'әрі қарай',
 	'жалғастыр',
+	'келесі',
 ];
 
 const voiceTokens = (text: string) => foldVoice(text).split(/\s+/).filter(Boolean);
 
-const matchesVoice = (text: string, words: string[]) => {
-	const folded = foldVoice(text);
-	const tokens = voiceTokens(text);
+// The microphone also hears the step being read aloud, so a command word that occurs in that
+// step ("para" in "aceite para freír", "хватит" in "этого хватит") is its echo, not the user.
+const matchesVoice = (text: string, words: string[], echoOf = '') => {
+	const folded = ` ${voiceTokens(text).join(' ')} `;
+	const echo = ` ${voiceTokens(echoOf).join(' ')} `;
 	return words.some((word) => {
-		const foldedWord = foldVoice(word);
-		return foldedWord.includes(' ') ? folded.includes(foldedWord) : tokens.includes(foldedWord);
+		const w = ` ${voiceTokens(word).join(' ')} `;
+		return folded.includes(w) && !echo.includes(w);
 	});
 };
 
@@ -97,6 +139,8 @@ const SPEECH_LOCALES: Record<string, string> = {
 	fr: 'fr-FR',
 	kk: 'kk-KZ',
 };
+
+const VOICE_FALLBACK: Record<string, string> = { kk: 'ru', uk: 'ru' };
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;
@@ -392,17 +436,22 @@ export function RecipeDetail({
 		});
 	};
 
-	const voiceFor = (voices: SpeechSynthesisVoice[], lang: string) => {
+	const voiceFor = (voices: SpeechSynthesisVoice[], lang: string): SpeechSynthesisVoice | null => {
 		const locale = (SPEECH_LOCALES[lang] || 'ru-RU').toLowerCase();
 		const prefix = lang.toLowerCase();
-		return (
+		const own =
 			voices.find((v) => v.lang.toLowerCase() === locale) ||
-			voices.find((v) => v.lang.toLowerCase().replace('_', '-').startsWith(prefix)) ||
-			null
-		);
+			voices.find((v) => v.lang.toLowerCase().replace('_', '-').startsWith(prefix));
+		if (own) return own;
+		// Most desktop browsers ship no Kazakh or Ukrainian voice and would read Cyrillic with the
+		// default English one; a Russian voice is far easier to follow.
+		return VOICE_FALLBACK[lang] ? voiceFor(voices, VOICE_FALLBACK[lang]) : null;
 	};
 
-	const isStopCommand = (text: string) => matchesVoice(text, STOP_WORDS);
+	const isStopCommand = (text: string) => {
+		const reading = readingRef.current ? stepsRef.current[indexRef.current] : undefined;
+		return matchesVoice(text, STOP_WORDS, reading ? getStepInstruction(reading) : '');
+	};
 	const isNextCommand = (text: string) => matchesVoice(text, NEXT_WORDS);
 
 	const stopListening = () => {
@@ -639,7 +688,10 @@ export function RecipeDetail({
 		utterance.lang = SPEECH_LOCALES[langRef.current] || 'ru-RU';
 		utterance.rate = 0.9;
 		const voice = voiceFor(voices, langRef.current);
-		if (voice) utterance.voice = voice;
+		if (voice) {
+			utterance.voice = voice;
+			utterance.lang = voice.lang;
+		}
 		utterance.onend = () => {
 			if (utteranceRef.current !== utterance) return;
 			if (!chain || !readingRef.current) {
