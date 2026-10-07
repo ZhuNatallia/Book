@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useBackLayer } from '../lib/backNav';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTheme } from '../i18n/ThemeContext';
 import { FullRecipe } from '../types';
@@ -208,6 +209,8 @@ export function RecipeDetail({
 	const [imgFailed, setImgFailed] = useState(false);
 	const [photoOpen, setPhotoOpen] = useState(false);
 	const [nutritionOpen, setNutritionOpen] = useState(false);
+	useBackLayer(nutritionOpen, () => setNutritionOpen(false));
+	useBackLayer(photoOpen, () => setPhotoOpen(false));
 	const [currentStepIndex, setCurrentStepIndex] = useState(0);
 	const [isSpeaking, setIsSpeaking] = useState(false);
 	const [listenError, setListenError] = useState<string | null>(null);

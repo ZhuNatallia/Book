@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 import { useTheme, themes, ThemeId } from '../i18n/ThemeContext';
@@ -9,6 +9,7 @@ import { PlanSettings } from './PlanSettings';
 import { AccountSettings } from './AccountSettings';
 import { usePlan } from '../i18n/PlanContext';
 import { FullRecipe } from '../types';
+import { SettingsView } from '../lib/backNav';
 
 export type BottomNavView = 'recipes' | 'shopping' | 'menu' | 'converter' | 'friends';
 
@@ -24,9 +25,9 @@ interface HeaderProps {
   openSettingsTo?: 'plan' | null;
   onOpenSettingsConsumed?: () => void;
   recipes: FullRecipe[];
+  settings: SettingsView | null;
+  onSettings: (view: SettingsView | null) => void;
 }
-
-type SettingsView = 'main' | 'language' | 'theme' | 'profile' | 'feedback' | 'plan' | 'account';
 
 export function Header({
   onAddRecipe,
@@ -40,32 +41,32 @@ export function Header({
   openSettingsTo = null,
   onOpenSettingsConsumed,
   recipes,
+  settings,
+  onSettings,
 }: HeaderProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, themeId, setThemeId, momsPaper, setMomsPaper } = useTheme();
   const { isPlus } = usePlan();
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsView, setSettingsView] = useState<SettingsView>('main');
+  const showSettings = settings !== null;
+  const settingsView: SettingsView = settings ?? 'main';
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       if (dropdownRef.current && !dropdownRef.current.contains(target)) {
-        setShowSettings(false);
-        setSettingsView('main');
+        onSettings(null);
       }
     };
     if (showSettings) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showSettings]);
+  }, [showSettings, onSettings]);
 
   useEffect(() => {
     if (openSettingsTo !== 'plan') return;
-    setShowSettings(true);
-    setSettingsView('plan');
+    onSettings('plan');
     onOpenSettingsConsumed?.();
-  }, [openSettingsTo, onOpenSettingsConsumed]);
+  }, [openSettingsTo, onOpenSettingsConsumed, onSettings]);
 
   const languages: { code: Language; flag: string; label: string }[] = [
     { code: 'ru', flag: '🇷🇺', label: 'Русский' },
@@ -88,10 +89,7 @@ export function Header({
     { id: 'lavender', name: themes.lavender.name[language], preview: 'from-[#c5b4e3] to-[#a78bfa]', checkDark: false },
   ];
 
-  const closeSettings = () => {
-    setShowSettings(false);
-    setSettingsView('main');
-  };
+  const closeSettings = () => onSettings(null);
 
   return (
     <header className={`sticky top-0 z-50 ${theme.headerBg}`}>
@@ -128,10 +126,7 @@ export function Header({
 
             <div className="relative" ref={dropdownRef}>
               <button
-                onClick={() => {
-                  setShowSettings(!showSettings);
-                  setSettingsView('main');
-                }}
+                onClick={() => onSettings(showSettings ? null : 'main')}
                 className={`${theme.iconBtn} p-2.5`}
               >
                 <Settings className={`w-5 h-5 ${theme.textAccent}`} />
@@ -148,7 +143,7 @@ export function Header({
                       </div>
                       <div className="p-1">
                         <button
-                          onClick={() => setSettingsView('profile')}
+                          onClick={() => onSettings('profile')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
@@ -158,7 +153,7 @@ export function Header({
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
-                          onClick={() => setSettingsView('account')}
+                          onClick={() => onSettings('account')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
@@ -168,7 +163,7 @@ export function Header({
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
-                          onClick={() => setSettingsView('plan')}
+                          onClick={() => onSettings('plan')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
@@ -183,7 +178,7 @@ export function Header({
                           </div>
                         </button>
                         <button
-                          onClick={() => setSettingsView('language')}
+                          onClick={() => onSettings('language')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
@@ -193,7 +188,7 @@ export function Header({
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
-                          onClick={() => setSettingsView('theme')}
+                          onClick={() => onSettings('theme')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
@@ -203,7 +198,7 @@ export function Header({
                           <ChevronRight className={`w-4 h-4 ${theme.textSecondary}`} />
                         </button>
                         <button
-                          onClick={() => setSettingsView('feedback')}
+                          onClick={() => onSettings('feedback')}
                           className={`neu-menu-item w-full flex items-center justify-between px-4 py-3 rounded-xl ${theme.textPrimary} transition-colors`}
                         >
                           <div className="flex items-center gap-3">
@@ -226,7 +221,7 @@ export function Header({
                   {settingsView === 'profile' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
-                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                        <button onClick={() => onSettings('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-base font-semibold ${theme.textPrimary}`}>
@@ -240,7 +235,7 @@ export function Header({
                   {settingsView === 'account' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
-                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                        <button onClick={() => onSettings('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-base font-semibold ${theme.textPrimary}`}>
@@ -260,7 +255,7 @@ export function Header({
                   {settingsView === 'plan' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
-                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                        <button onClick={() => onSettings('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-base font-semibold ${theme.textPrimary}`}>
@@ -274,7 +269,7 @@ export function Header({
                   {settingsView === 'language' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
-                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                        <button onClick={() => onSettings('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-base font-semibold ${theme.textPrimary}`}>
@@ -309,7 +304,7 @@ export function Header({
                   {settingsView === 'feedback' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
-                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                        <button onClick={() => onSettings('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-base font-semibold ${theme.textPrimary}`}>
@@ -323,7 +318,7 @@ export function Header({
                   {settingsView === 'theme' && (
                     <>
                       <div className={`p-3 border-b ${theme.border} ${theme.bgSecondary} flex items-center gap-2`}>
-                        <button onClick={() => setSettingsView('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
+                        <button onClick={() => onSettings('main')} className={`p-1 rounded hover:bg-gray-100 ${theme.textSecondary}`}>
                           <ArrowLeft className="w-4 h-4" />
                         </button>
                         <p className={`text-base font-semibold ${theme.textPrimary}`}>
