@@ -23,7 +23,12 @@ const SPEECH_LOCALES: Record<string, string> = {
 	it: 'it-IT',
 	es: 'es-ES',
 	fr: 'fr-FR',
+	kk: 'kk-KZ',
 };
+
+// "и", "and", "und", "і", "та", "i", "e", "y", "et", "және", plus "плюс"/"plus" and punctuation.
+const VOICE_ITEM_SEPARATOR =
+	/[;,]|\+|\s+(?:и|and|und|і|та|й|i|e|y|et|және|плюс|plus|oraz|sowie|ed)\s+/iu;
 
 const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 
@@ -36,17 +41,10 @@ interface ShoppingListViewProps {
 }
 
 function parseVoiceText(text: string): string[] {
-	const hasExplicitSeparator =
-		/[;,]|\s+и\s+|\s+and\s+|\+|\s+плюс\s+|\s+plus\s+/.test(text);
-
-	if (hasExplicitSeparator) {
-		return text
-			.split(/[;,]|\s+и\s+|\s+and\s+|\+|\s+плюс\s+|\s+plus\s+/)
-			.map((s) => s.trim())
-			.filter((s) => s.length > 0);
-	}
-
-	return [text.trim()].filter(Boolean);
+	return text
+		.split(VOICE_ITEM_SEPARATOR)
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
 }
 
 export function ShoppingListView({

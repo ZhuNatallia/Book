@@ -43,46 +43,111 @@ const STOP_WORDS = [
 	'стоп',
 	'stop',
 	'stopp',
-	'тоқта',
-	'pare',
+	'pause',
+	'пауза',
+	'pausa',
+	'pauza',
 	'останови',
 	'остановись',
+	'подожди',
 	'хватит',
+	'зупинись',
+	'зупини',
+	'зачекай',
+	'досить',
+	'wait',
+	'hold on',
+	'halt',
+	'warte',
 	'stój',
 	'stoj',
+	'czekaj',
 	'ferma',
+	'fermati',
+	'aspetta',
+	'basta',
 	'para',
+	'pare',
+	'detente',
+	'espera',
+	'alto',
 	'arrête',
 	'arrete',
 	'arrêt',
 	'arret',
+	'attends',
+	'тоқта',
+	'тоқтат',
+	'күте тұр',
 ];
 
+// After a pause: these move on to the following step...
 const NEXT_WORDS = [
 	'дальше',
-	'продолжай',
-	'продолжи',
-	'continue',
+	'далее',
+	'следующий',
 	'next',
 	'weiter',
+	'nächster',
 	'далі',
+	'наступний',
 	'dalej',
+	'następny',
 	'avanti',
-	'sigue',
+	'prossimo',
+	'siguiente',
+	'adelante',
 	'suivant',
+	'la suite',
 	'әрі',
 	'әрі қарай',
+	'келесі',
+];
+
+// ...and these read the interrupted step again from its start.
+const REPEAT_WORDS = [
+	'продолжай',
+	'продолжи',
+	'повтори',
+	'ещё раз',
+	'continue',
+	'go on',
+	'repeat',
+	'again',
+	'nochmal',
+	'noch einmal',
+	'wiederhole',
+	'продовжуй',
+	'продовж',
+	'ще раз',
+	'kontynuuj',
+	'powtórz',
+	'jeszcze raz',
+	'continua',
+	'ripeti',
+	'ancora',
+	'sigue',
+	'continúa',
+	'repite',
+	'otra vez',
+	'continuez',
+	'répète',
+	'répétez',
+	'encore',
 	'жалғастыр',
+	'қайтала',
 ];
 
 const voiceTokens = (text: string) => foldVoice(text).split(/\s+/).filter(Boolean);
 
-const matchesVoice = (text: string, words: string[]) => {
-	const folded = foldVoice(text);
-	const tokens = voiceTokens(text);
+// The microphone also hears the step being read aloud, so a command word that occurs in that
+// step ("para" in "aceite para freír", "хватит" in "этого хватит") is its echo, not the user.
+const matchesVoice = (text: string, words: string[], echoOf = '') => {
+	const folded = ` ${voiceTokens(text).join(' ')} `;
+	const echo = ` ${voiceTokens(echoOf).join(' ')} `;
 	return words.some((word) => {
-		const foldedWord = foldVoice(word);
-		return foldedWord.includes(' ') ? folded.includes(foldedWord) : tokens.includes(foldedWord);
+		const w = ` ${voiceTokens(word).join(' ')} `;
+		return folded.includes(w) && !echo.includes(w);
 	});
 };
 
@@ -97,6 +162,8 @@ const SPEECH_LOCALES: Record<string, string> = {
 	fr: 'fr-FR',
 	kk: 'kk-KZ',
 };
+
+const VOICE_FALLBACK: Record<string, string> = { kk: 'ru', uk: 'ru' };
 
 interface RecipeDetailProps {
 	recipe: FullRecipe;
@@ -392,18 +459,24 @@ export function RecipeDetail({
 		});
 	};
 
-	const voiceFor = (voices: SpeechSynthesisVoice[], lang: string) => {
+	const voiceFor = (voices: SpeechSynthesisVoice[], lang: string): SpeechSynthesisVoice | null => {
 		const locale = (SPEECH_LOCALES[lang] || 'ru-RU').toLowerCase();
 		const prefix = lang.toLowerCase();
-		return (
+		const own =
 			voices.find((v) => v.lang.toLowerCase() === locale) ||
-			voices.find((v) => v.lang.toLowerCase().replace('_', '-').startsWith(prefix)) ||
-			null
-		);
+			voices.find((v) => v.lang.toLowerCase().replace('_', '-').startsWith(prefix));
+		if (own) return own;
+		// Most desktop browsers ship no Kazakh or Ukrainian voice and would read Cyrillic with the
+		// default English one; a Russian voice is far easier to follow.
+		return VOICE_FALLBACK[lang] ? voiceFor(voices, VOICE_FALLBACK[lang]) : null;
 	};
 
-	const isStopCommand = (text: string) => matchesVoice(text, STOP_WORDS);
+	const isStopCommand = (text: string) => {
+		const reading = readingRef.current ? stepsRef.current[indexRef.current] : undefined;
+		return matchesVoice(text, STOP_WORDS, reading ? getStepInstruction(reading) : '');
+	};
 	const isNextCommand = (text: string) => matchesVoice(text, NEXT_WORDS);
+	const isRepeatCommand = (text: string) => matchesVoice(text, REPEAT_WORDS);
 
 	const stopListening = () => {
 		listenGen.current += 1;
@@ -453,7 +526,7 @@ export function RecipeDetail({
 					if (voicePausedRef.current) {
 						if (performance.now() < continueAfter.current) return;
 						const goScore = goAt >= 0 ? Number(scores[goAt] ?? 0) : 0;
-						if (goScore >= 0.25 && best === goAt) resumeReading();
+						if (goScore >= 0.25 && best === goAt) resumeReading('same');
 						return;
 					}
 					if (!readingRef.current) return;
@@ -536,9 +609,10 @@ export function RecipeDetail({
 						pauseByVoice();
 						return;
 					}
-					if (isNextCommand(text)) {
+					const resume = isNextCommand(text) ? 'next' : isRepeatCommand(text) ? 'same' : null;
+					if (resume) {
 						if (performance.now() < continueAfter.current) return;
-						resumeReading();
+						resumeReading(resume);
 						return;
 					}
 				}
@@ -611,11 +685,17 @@ export function RecipeDetail({
 		void startLocalStop(listenGen.current);
 	};
 
-	const resumeReading = () => {
+	const resumeReading = (target: 'same' | 'next') => {
 		if (!voicePausedRef.current) return;
 		voicePausedRef.current = false;
 		setVoicePaused(false);
-		readFrom(indexRef.current);
+		if (target === 'same') {
+			readFrom(indexRef.current);
+			return;
+		}
+		const next = indexRef.current + 1;
+		if (next < stepsRef.current.length) readFrom(next);
+		else stopReading();
 	};
 
 	const stopReading = () => {
@@ -639,7 +719,10 @@ export function RecipeDetail({
 		utterance.lang = SPEECH_LOCALES[langRef.current] || 'ru-RU';
 		utterance.rate = 0.9;
 		const voice = voiceFor(voices, langRef.current);
-		if (voice) utterance.voice = voice;
+		if (voice) {
+			utterance.voice = voice;
+			utterance.lang = voice.lang;
+		}
 		utterance.onend = () => {
 			if (utteranceRef.current !== utterance) return;
 			if (!chain || !readingRef.current) {
