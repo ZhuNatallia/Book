@@ -11,6 +11,7 @@ import { compressImageFile } from '../lib/media';
 import { useOnline } from '../lib/online';
 import { findExistingRecipe } from '../lib/recipeMatch';
 import { usePlan } from '../i18n/PlanContext';
+import { isQuotaError } from '../lib/plan';
 import { ALL_CIRCLES } from '../lib/friendCircles';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle, Mic } from 'lucide-react';
 
