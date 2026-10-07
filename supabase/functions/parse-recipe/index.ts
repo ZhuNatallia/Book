@@ -412,11 +412,12 @@ function extractLdJsonBlocks(html: string): any[] {
   return blocks;
 }
 
-// Measurement units (RU + EN). Uses negative lookbehind instead of \b so it matches after stripped emoji.
-const MEASURE = /(?<!\w)(?:\d+[.,]?\d*\s*)?(щепотк[а-яё]*|pinch(?:es)?|prise)\b|(?<!\w)\d+[.,]?\d*\s*(г|гр|кг|мл|л|шт|ст\.?\s*л\.?|ч\.?\s*л\.?|стакан|стак|g|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece|el|tl|esslöffel|teelöffel|kilogramm|gramm)\b/i;
+// Measurement units (RU + EN). \b only sees ASCII, so "300 г" and "щепотка соли" never matched
+// and those lines were dropped. (?![\p{L}\p{N}]) is the boundary after a Cyrillic unit.
+const MEASURE = /(?<![\p{L}\p{N}])(?:\d+[.,]?\d*\s*)?(?:щепотк\p{L}*|pinch(?:es)?|prise)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])\d+[.,]?\d*\s*(?:ст\.?\s*л\.?|ч\.?\s*л\.?|килограмм\p{L}*|миллилитр\p{L}*|грамм\p{L}*|стакан\p{L}*|esslöffel|teelöffel|kilogramm|gramm|гр|кг|мл|шт|г|л|kg|ml|oz|lb|cup|tbsp|tsp|pcs|piece|el|tl)(?![\p{L}\p{N}])/iu;
 
 function measureHits(s: string): number {
-  return [...s.matchAll(new RegExp(MEASURE.source, 'gi'))].length;
+  return [...s.matchAll(new RegExp(MEASURE.source, 'giu'))].length;
 }
 
 const FB_SLOGAN_RE =
@@ -510,11 +511,28 @@ const COOK_VERB = /\b(смешай|добавь|нарежь|взбей|выпе
 // Parse plain-text description to extract ingredients and steps using heuristic line classification.
 // Works without explicit section headers — classifies each line by its content pattern.
 // Leading emoji are stripped before classification so that lines like "🍌 2 банана" are recognised.
+// "Начинка:", "Штрейзель:" — a part of the same dish, not a new recipe and not a step.
+const SUBSECTION_RE =
+  /^(?:для\s+)?(начинк\p{L}*|штрейзел\p{L}*|стрейзел\p{L}*|посыпк\p{L}*|глазур\p{L}*|крем\p{L}*|топпинг\p{L}*|тест[оа]|streusel\p{L}*|crumble\p{L}*|filling\p{L}*|topping\p{L}*|frosting\p{L}*|glaze\p{L}*|dough)\s*:?\s*$/iu;
+
+// "Сливочное масло -60" — the unit was left off, but the line is still an ingredient.
+const BARE_AMOUNT_RE = /[-–—−]\s*\d+(?:[.,]\d+)?\s*$/;
+
 function parseDescriptionText(text: string): { ingredients: string[]; instructions: string[] } {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const ingredients: string[] = [];
   const instructions: string[] = [];
   let mode: 'none' | 'ing' | 'steps' = 'none';
+  let section = '';
+
+  const pushIngredient = (raw: string) => {
+    const item = raw.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, '').trim();
+    if (!item || isJunkIngredient(item)) return;
+    const labeled = section && !item.toLowerCase().includes(section.toLowerCase())
+      ? `${section}: ${item}`
+      : item;
+    ingredients.push(labeled);
+  };
 
   for (const line of lines) {
     // Strip leading emoji to normalise patterns like "🍌 2 банана" or "🍽 Приготовление:"
@@ -522,29 +540,41 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
 
     // Section headers → switch mode, don't include the header text itself
     if (/^(ингредиент|склад|складник|состав|продукт|рецепт|ingredient|zutaten|das benötigen|ingrédients?|ingredienti|ingredientes|składnik|recipe|rezept|przepis)/i.test(stripped) && stripped.length < 80) {
-      mode = 'ing'; continue;
+      mode = 'ing';
+      section = '';
+      continue;
     }
     if (/^(приготовлени|приготуванн|шаги|крок|процесс|инструкц|способ|метод|steps?|directions?|method|how\s+to|zubereitung|anleitung|so geht|vorbereitung|arbeitsschritt|préparation|preparazione|preparación|przygotowan)/i.test(stripped) && stripped.length < 80) {
-      mode = 'steps'; continue;
+      mode = 'steps';
+      section = '';
+      continue;
+    }
+    const subsection = stripped.match(SUBSECTION_RE);
+    if (subsection && stripped.length < 40) {
+      mode = 'ing';
+      section = subsection[1].replace(/:\s*$/, '').trim();
+      continue;
     }
 
     const isBullet    = /^[-•*✓▪▸→]\s/.test(stripped);
     const isNumbered  = /^\d+[.)]\s/.test(stripped);
     const hasMeasure  = MEASURE.test(stripped);
+    const hasBareAmount = BARE_AMOUNT_RE.test(stripped);
     const hasCookVerb = COOK_VERB.test(stripped);
     // A line that starts with a digit + unit (after emoji strip) counts as an ingredient bullet
     const isEmojiBullet = stripped !== line; // leading emoji was present
+    const looksLikeIngredient = isBullet || isNumbered || hasMeasure || isEmojiBullet || hasBareAmount;
 
     if (mode === 'ing') {
       // Accept bullets, numbered lines, emoji-prefixed lines, or lines with measurements
-      if (isBullet || isNumbered || hasMeasure || isEmojiBullet) {
-        const item = stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, '');
-        if (!isJunkIngredient(item)) ingredients.push(item);
+      if (looksLikeIngredient) {
+        pushIngredient(stripped);
         continue;
       }
       // Line looks like a step — switch modes
       if (hasCookVerb || (isNumbered && stripped.length > 30)) {
         mode = 'steps';
+        section = '';
         instructions.push(stripped.replace(/^\d+[.)]\s*/, ''));
         continue;
       }
@@ -559,12 +589,9 @@ function parseDescriptionText(text: string): { ingredients: string[]; instructio
 
     // No explicit mode yet — classify by content heuristic
     if (mode === 'none') {
-      if ((isBullet || hasMeasure || isEmojiBullet) && !hasCookVerb) {
-        const item = stripped.replace(/^[-•*✓▪▸→]\s*/, '').replace(/^\d+[.)]\s*/, '');
-        if (!isJunkIngredient(item)) {
-          mode = 'ing';
-          ingredients.push(item);
-        }
+      if (looksLikeIngredient && !hasCookVerb) {
+        mode = 'ing';
+        pushIngredient(stripped);
       } else if ((isNumbered && hasCookVerb) || (isNumbered && stripped.length > 40)) {
         mode = 'steps';
         instructions.push(stripped.replace(/^\d+[.)]\s*/, ''));
@@ -667,8 +694,11 @@ function stripMetaChrome(raw: string): string {
 const LEADING_EMOJI_RE = new RegExp(`^[${EMOJI_CHARS}]+`, 'u');
 
 // Section headers used by captions to separate the ingredient list from the method.
+// "Ингредиенты на 18-20 шт:" keeps a short tail between the word and the colon.
+// "Начинка:" / "Штрейзель:" are sections of the same dish, often glued to the previous line
+// ("Щепотка соли Начинка:") when Facebook collapses newlines.
 const CAPTION_SECTION_RE =
-  /[ \t]*((?:СПОСОБ\s+)?(?:ИНГРЕДИЕНТ|СОСТАВ|ПРОДУКТ|ПРИГОТОВЛЕНИ|ИНСТРУКЦИ|ШАГ|РЕЦЕПТ)\p{L}*|INGREDIENTS?|RECIPE|METHOD|DIRECTIONS|INSTRUCTIONS|PREPARATION|ZUTATEN|ZUBEREITUNG|REZEPT|PRZEPIS)[ \t]*:/giu;
+  /[ \t]*((?:СПОСОБ\s+)?(?:ИНГРЕДИЕНТ|СОСТАВ|ПРОДУКТ|ПРИГОТОВЛЕНИ|ИНСТРУКЦИ|ШАГ|РЕЦЕПТ)\p{L}*(?:[ \t]+(?:на|\d+[–—−-]?\d*|шт\.?)){0,4}|НАЧИНК\p{L}*|ШТРЕЙЗЕЛ\p{L}*|СТРЕЙЗЕЛ\p{L}*|ПОСЫПК\p{L}*|ГЛАЗУР\p{L}*|ТЕСТО|STREUSEL|CRUMBLE|FILLING|TOPPING|INGREDIENTS?|RECIPE|METHOD|DIRECTIONS|INSTRUCTIONS|PREPARATION|ZUTATEN|ZUBEREITUNG|REZEPT|PRZEPIS)[ \t]*:/giu;
 
 // Emoji that the caption actually uses as a list marker. Learned from line starts so that a
 // mid-sentence emoji ("хотя их я тоже люблю👍 Основные ингредиенты...") is not mistaken for one
@@ -891,6 +921,49 @@ function captionLooksThin(s: string): boolean {
     || looksLikeCommentThread(s);
 }
 
+// "Мука 540 г" and "Мука - 530-550 г" are the same line. "Мука 50 г" is a different one.
+function ingredientFingerprint(line: string): string {
+  const core = line
+    .replace(/^(?:для\s+)?[\p{L}][\p{L}\s]{0,24}:\s*/u, '')
+    .toLowerCase()
+    .replace(/ё/g, 'е');
+  const nums = [...core.matchAll(/\d+(?:[.,]\d+)?/g)].map((m) => parseFloat(m[0].replace(',', '.')));
+  const avg = nums.length ? Math.round(nums.reduce((sum, n) => sum + n, 0) / nums.length) : 0;
+  const name = core
+    .replace(/\d+(?:[.,]\d+)?/g, ' ')
+    .replace(/\b(?:грамм\p{L}*|килограмм\p{L}*|миллилитр\p{L}*|штук\p{L}*|щепотк\p{L}*|ст\.?\s*л\.?|ч\.?\s*л\.?|гр|кг|мл|шт|г|л|kg|ml|pcs|tbsp|tsp|cup)\b/giu, ' ')
+    .replace(/[^\p{L}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${name}|${avg}`;
+}
+
+// The model sometimes drops a section (filling, streusel) or a line with no unit ("масло -60").
+// Keep every ingredient line the regex still sees, without duplicating the ones the model kept.
+function unionIngredients(primary: string[], extra: string[]): string[] {
+  const out = [...primary];
+  const counts = new Map<string, number>();
+  const add = (line: string) => {
+    const key = ingredientFingerprint(line);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
+  for (const line of out) add(line);
+  const need = new Map<string, number>();
+  for (const line of extra) {
+    const key = ingredientFingerprint(line);
+    need.set(key, (need.get(key) ?? 0) + 1);
+  }
+  for (const line of extra) {
+    const key = ingredientFingerprint(line);
+    if ((counts.get(key) ?? 0) >= (need.get(key) ?? 0)) continue;
+    if (isJunkIngredient(line)) continue;
+    if (COOK_VERB.test(line) && line.length > 80) continue;
+    out.push(line);
+    add(line);
+  }
+  return out;
+}
+
 async function structureCaption(
   cleanDesc: string,
   lang: string,
@@ -905,7 +978,9 @@ async function structureCaption(
     ? await tryLlmStructure(cleanDesc, lang, opts?.maxChars ?? 5000, opts?.mergePages === true)
     : null;
   const regexResult = cleanDesc ? parseDescriptionText(cleanDesc) : { ingredients: [], instructions: [] };
-  const ingredients = structured?.ingredients?.length ? structured.ingredients : regexResult.ingredients;
+  const ingredients = structured?.ingredients?.length
+    ? unionIngredients(structured.ingredients, regexResult.ingredients)
+    : regexResult.ingredients;
   const instructions = splitLongSteps(
     structured?.instructions?.length ? structured.instructions : regexResult.instructions,
   );
@@ -1238,16 +1313,37 @@ function extractInstagramEmbedCaption(html: string): string {
   return '';
 }
 
-// A longer scrape is not better when it is the profile header plus other people's replies.
+function isTruncatedCaption(s: string): boolean {
+  const t = s.trim();
+  return /[…]\s*$/.test(t) || /\.{3}\s*$/.test(t);
+}
+
+// A longer scrape is not better when it is the profile header plus other people's replies,
+// or when Facebook's og:description is cut off at "See more" while og:title still has the list.
 function betterSocialText(current: string, candidate: string): string {
   if (!candidate || isLoginWallText(candidate) || looksLikeFacebookChrome(candidate)) return current;
   const fromComments = extractPinnedRecipeComment(candidate);
   const next = fromComments || candidate;
+  if (
+    current
+    && isTruncatedCaption(next)
+    && !isTruncatedCaption(current)
+    && measureHits(current) >= measureHits(next)
+  ) {
+    return current;
+  }
   const curRecipe = looksLikeRecipeText(current);
   const newRecipe = looksLikeRecipeText(next);
   if (newRecipe && !curRecipe) return next;
-  if (newRecipe && curRecipe && (measureHits(next) > measureHits(current) || next.length > current.length)) {
-    return next;
+  if (newRecipe && curRecipe) {
+    const nextHits = measureHits(next);
+    const curHits = measureHits(current);
+    if (nextHits > curHits) return next;
+    if (nextHits < curHits) return current;
+    if (isTruncatedCaption(next) && !isTruncatedCaption(current)) return current;
+    if (!isTruncatedCaption(next) && isTruncatedCaption(current)) return next;
+    if (next.length > current.length) return next;
+    return current;
   }
   if (!curRecipe && measureHits(next) >= 3 && measureHits(next) > measureHits(current)) return next;
   if (!current) return looksLikeCommentThread(next) ? '' : next;
@@ -1644,8 +1740,9 @@ function coerceLlmRecipes(out: Record<string, unknown> | null): StructuredRecipe
   return mergeComponentRecipes(recipes);
 }
 
+// \b does not see Cyrillic, so "Начинка" never matched начинк\b. (?!\p{L}) is the boundary.
 const COMPONENT_TITLE_RE =
-  /^(для\s+)?(крем|глазур|ganache|frosting|buttercream|icing|начинк|cream|glasur|gla[cç]age|crema)\b|для крема|for the cream|für die creme|pour la cr[eè]me/i;
+  /^(?:для\s+)?(?:крем|глазур|ganache|frosting|buttercream|icing|начинк|штрейзел|стрейзел|streusel|crumble|посыпк|топпинг|topping|crumb|cream|glasur|gla[cç]age|crema)\p{L}*(?!\p{L})|для крема|for the cream|für die creme|pour la cr[eè]me/iu;
 
 function isComponentRecipe(recipe: StructuredRecipe): boolean {
   const title = (recipe.title ?? '').trim();
@@ -1709,7 +1806,7 @@ Each recipes[] item:
 - ingredients: array of strings in ${langName}, each one ingredient with quantity + unit + name, e.g. ${examples.ingredients}
 - instructions: array of strings in ${langName}, one short step per array item, in order. Never return the whole method as a single item: split it into separate steps at each distinct action (prepare, mix, bake, assemble, ...).
 
-If the text has sections for batter, cream, frosting, glaze, filling, garnish or "additionally", keep ALL of those lines in the SAME recipe.ingredients array. Prefix cream/frosting lines so they stay readable, e.g. "для крема: сметана — 200 г". Never drop a cream, frosting, sauce or garnish list that belongs to the same dish. "Ingredients for the cream" is NOT a second recipe.
+If the text has sections for batter, dough, cream, frosting, glaze, filling, streusel, crumble, topping, garnish or "additionally" (Начинка, Штрейзель, тесто, посыпка), keep ALL of those lines in the SAME recipe.ingredients array. Prefix those lines so they stay readable, e.g. "для крема: сметана — 200 г", "Начинка: мак — 250 г", "Штрейзель: мука — 50 г". A line like "Сливочное масло -60" is still an ingredient: 60 grams, the unit was omitted. Never drop a line that names a product. "Ingredients for the cream" is NOT a second recipe.
 ${mergePages ? `
 This text is TWO PAGES of ONE recipe. Page 2 is usually the method (Zubereitung / Приготовление / Anleitung / steps). Keep every page-1 ingredient. Put every page-2 cooking paragraph into instructions. Never return empty instructions if page 2 has method text. Do not treat the method page as a second dish.
 ` : ''}
@@ -2347,7 +2444,18 @@ serve(async (req) => {
       const pickCaption = (title?: string, desc?: string) => {
         const d = unwrapSocialQuote(desc ?? '');
         const t = title ? stripMetaChrome(title) : '';
-        const picked = t.length > d.length * 1.3 && t.length > d.length + 80 ? t : d;
+        let picked = '';
+        if (t && d && isTruncatedCaption(d) !== isTruncatedCaption(t)) {
+          const complete = isTruncatedCaption(t) ? d : t;
+          const cut = isTruncatedCaption(t) ? t : d;
+          picked = complete.length + 40 >= cut.length ? complete : (t.length > d.length ? t : d);
+        } else if (t.length > d.length * 1.3 && t.length > d.length + 80) {
+          picked = t;
+        } else if (measureHits(t) > measureHits(d) && t.length > d.length) {
+          picked = t;
+        } else {
+          picked = d || t;
+        }
         return isLoginWallText(picked) || looksLikeFacebookChrome(picked) ? '' : picked;
       };
 
@@ -2386,8 +2494,14 @@ serve(async (req) => {
         if (!mlImage && isUsableImageUrl(pageImage)) mlImage = pageImage;
         const fromPage = htmlToCaption(html, sourceUrl);
         const embedded = /instagram\.com/i.test(sourceUrl) ? extractInstagramEmbeddedRecipe(html) : '';
+        // Facebook puts the full recipe in og:title and cuts og:description at "See more".
+        // The visible page text is that short cut, so it must not hide the title.
+        const metaCaption = pickCaption(pageOgTitle, pageOgDesc);
+        const bodyCaption = fromPage.text.length > 80 ? fromPage.text : '';
         const pageCaption = embedded
-          || (fromPage.text.length > 80 ? fromPage.text : pickCaption(pageOgTitle, pageOgDesc));
+          || betterSocialText(metaCaption, bodyCaption)
+          || metaCaption
+          || bodyCaption;
         rawCaption = betterSocialText(rawCaption, pageCaption);
       };
 
