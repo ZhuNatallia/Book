@@ -111,7 +111,10 @@ const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
 const UNIT_ALT =
   'килограмм[а-яё]*|миллилитр[а-яё]*|грамм[а-яё]*|литр[а-яё]*|штук[а-яё]*|стакан[а-яё]*|щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым|ст\\.?\\s*л\\.?|ч\\.?\\s*л\\.?|гр|кг|мл|шт|г|л|kg|ml|pcs|piece|cup|tbsp|tsp|oz|lb|g|l';
 
-const QTY = '\\d+(?:[/.,]\\d+)?';
+const QTY_ONE = '\\d+(?:[/.,]\\d+)?';
+// "320–350 г" and "530-550 г" are one amount. The dash stays inside the quantity,
+// otherwise only the first number is read and the unit after the second number is lost.
+const QTY = `${QTY_ONE}(?:\\s*[–—−-]\\s*${QTY_ONE})?`;
 
 // "2 cups flour", "1/4 tsp salt", "400 г муки". The unit group requires a following space or
 // end-of-string, otherwise a bare "л"/"г" would swallow the first letter of a word
@@ -121,7 +124,11 @@ const LEADING_QTY_RE = new RegExp(`^(${QTY})\\s*(?:(${UNIT_ALT})(?=\\s|$))?\\s*(
 // "Куриные бедрышки 500 грамм", "Яйцо 1 шт." — quantity trails the name instead of leading it.
 const TRAILING_QTY_RE = new RegExp(`^(.*?)[\\s,\\-–—]+(${QTY})\\s*(${UNIT_ALT})\\.?\\s*$`, 'i');
 
-function toQuantity(raw: string): number {
+// "Сливочное масло -60" — the grams sign was left off. A large bare number is grams;
+// a small one ("яйцо - 2") is pieces.
+const BARE_TRAIL_RE = new RegExp(`^(.*?)[\\s,]*[-–—−]\\s*(${QTY_ONE})\\s*$`, 'i');
+
+function singleQuantity(raw: string): number {
   if (raw.includes('/')) {
     const p = raw.split('/');
     return parseFloat(p[0]) / parseFloat(p[1] || '1');
@@ -129,8 +136,21 @@ function toQuantity(raw: string): number {
   return parseFloat(raw.replace(',', '.')) || 1;
 }
 
+function toQuantity(raw: string): number {
+  const range = raw.match(/^(\d+(?:[/.,]\d+)?)\s*[–—−-]\s*(\d+(?:[/.,]\d+)?)$/);
+  if (!range) return singleQuantity(raw);
+  const mid = (singleQuantity(range[1]) + singleQuantity(range[2])) / 2;
+  return Number.isFinite(mid) ? Math.round(mid * 10) / 10 : 1;
+}
+
+// "Начинка: Мак - 250 г" / "Штрейзель: щепотка соли" — the label is part of the same dish.
+const SECTION_LABEL_RE =
+  /^(начинк[а-яё]*|штрейзел[а-яё]*|стрейзел[а-яё]*|посыпк[а-яё]*|глазур[а-яё]*|крем[а-яё]*|топпинг[а-яё]*|тесто|streusel\w*|crumble\w*|filling\w*|topping\w*|frosting\w*|glaze\w*|dough)\s*:\s*(.+)$/i;
+
 function parseIngredientString(raw: string): { quantity: number; unit: string; name: string } {
-  const text = raw.trim();
+  const labeled = raw.trim().match(SECTION_LABEL_RE);
+  const text = (labeled?.[2] ?? raw).trim();
+  const withLabel = (name: string) => labeled ? `${labeled[1]}: ${name}` : name;
 
   const lead = text.match(LEADING_QTY_RE);
   if (lead) {
@@ -138,7 +158,7 @@ function parseIngredientString(raw: string): { quantity: number; unit: string; n
     return {
       quantity: toQuantity(lead[1]),
       unit: lead[2] ? normalizeUnit(lead[2]) : 'pcs',
-      name: name || text,
+      name: withLabel(name || text),
     };
   }
 
@@ -146,22 +166,31 @@ function parseIngredientString(raw: string): { quantity: number; unit: string; n
   if (trail) {
     const name = trail[1].replace(/\s{2,}/g, ' ').trim();
     if (name) {
-      return { quantity: toQuantity(trail[2]), unit: normalizeUnit(trail[3]), name };
+      return { quantity: toQuantity(trail[2]), unit: normalizeUnit(trail[3]), name: withLabel(name) };
     }
   }
 
   const pinchLead = text.match(/^(щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым)\s+(.+)$/i);
   if (pinchLead) {
-    return { quantity: 1, unit: 'pinch', name: pinchLead[2].replace(/\s{2,}/g, ' ').trim() };
+    return { quantity: 1, unit: 'pinch', name: withLabel(pinchLead[2].replace(/\s{2,}/g, ' ').trim()) };
   }
 
   const pinchTrail = text.match(/^(.+?)[\s,\-–—]+(щепотк[а-яё]*|дрібк[а-яё]*|szczypta|pincée|pincee|pizzico|pinches?|prise|pizca|шымшым)\.?$/i);
   if (pinchTrail) {
     const name = pinchTrail[1].replace(/\s{2,}/g, ' ').trim();
-    if (name) return { quantity: 1, unit: 'pinch', name };
+    if (name) return { quantity: 1, unit: 'pinch', name: withLabel(name) };
   }
 
-  return { quantity: 1, unit: 'pcs', name: text };
+  const bare = text.match(BARE_TRAIL_RE);
+  if (bare) {
+    const name = bare[1].replace(/\s{2,}/g, ' ').trim();
+    const quantity = toQuantity(bare[2]);
+    if (name && Number.isFinite(quantity)) {
+      return { quantity, unit: quantity >= 10 ? 'g' : 'pcs', name: withLabel(name) };
+    }
+  }
+
+  return { quantity: 1, unit: 'pcs', name: withLabel(text) };
 }
 
 function ingredientKey(ing: ParsedRecipe['ingredients'][number]) {
