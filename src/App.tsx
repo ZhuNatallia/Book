@@ -25,6 +25,16 @@ import { recipeMatchesQuery } from './lib/recipeSearch';
 import { remainingShoppingItems } from './lib/ingredientMerge';
 import { useRecipeLayout } from './lib/recipeLayout';
 import { shouldShowTrialOffer } from './lib/trialOffer';
+import {
+  BookPlace,
+  backOnce,
+  discardTopOverlay,
+  installBackNav,
+  pushLayer,
+  samePlace,
+  SettingsView,
+  undoUntil,
+} from './lib/backNav';
 import { ChefHat } from 'lucide-react';
 import { TrialOffer } from './components/TrialOffer';
 
@@ -85,6 +95,7 @@ function AppContent() {
 	}, [recipes, syncRecipeCount]);
 
 	const [activeView, setActiveView] = useState<AppView>('recipes');
+	const [settings, setSettings] = useState<SettingsView | null>(null);
 	const [friendsHomeRequest, setFriendsHomeRequest] = useState(0);
 	const [showFridge, setShowFridge] = useState(false);
 	const [selectedRecipe, setSelectedRecipe] = useState<FullRecipe | null>(null);
@@ -100,6 +111,81 @@ function AppContent() {
 	const [openSettingsTo, setOpenSettingsTo] = useState<'plan' | null>(null);
 	const [offerReady, setOfferReady] = useState(false);
 	const filterBarRef = useRef<HTMLDivElement>(null);
+	const recipesRef = useRef(recipes);
+	recipesRef.current = recipes;
+	const recipeCache = useRef(new Map<string, FullRecipe>());
+	const placeRef = useRef<BookPlace>({
+		view: 'recipes',
+		fridge: false,
+		recipeId: null,
+		add: false,
+		settings: null,
+	});
+
+	const applyPlace = (place: BookPlace) => {
+		placeRef.current = place;
+		setActiveView(place.view);
+		setShowFridge(place.fridge);
+		setShowAddModal(place.add);
+		setSettings(place.settings);
+		if (!place.add) setEditingRecipe(null);
+		if (!place.recipeId) {
+			setSelectedRecipe(null);
+			return;
+		}
+		const recipe = recipesRef.current.find((item) => item.recipe.id === place.recipeId)
+			?? recipeCache.current.get(place.recipeId)
+			?? null;
+		setSelectedRecipe(recipe);
+	};
+
+	const navigate = (
+		partial: Partial<BookPlace>,
+		options?: { replaceOverlay?: boolean },
+	) => {
+		const next = { ...placeRef.current, ...partial };
+		if (samePlace(placeRef.current, next)) {
+			if (options?.replaceOverlay) discardTopOverlay();
+			return;
+		}
+		const previous = placeRef.current;
+		placeRef.current = next;
+		applyPlace(next);
+		pushLayer(() => {
+			placeRef.current = previous;
+			applyPlace(previous);
+		}, previous, options);
+	};
+
+	const showRecipe = (recipe: FullRecipe) => {
+		recipeCache.current.set(recipe.recipe.id, recipe);
+		navigate({ recipeId: recipe.recipe.id });
+	};
+
+	const changeSettings = (next: SettingsView | null) => {
+		const current = placeRef.current.settings;
+		if (current === next) return;
+		if (next === null) {
+			if (!undoUntil((place) => place.settings === null)) {
+				applyPlace({ ...placeRef.current, settings: null });
+			}
+			return;
+		}
+		if (next === 'main' && current && current !== 'main') {
+			backOnce();
+			return;
+		}
+		if (current == null && next !== 'main') {
+			navigate({ settings: 'main' });
+			navigate({ settings: next });
+			return;
+		}
+		navigate({ settings: next });
+	};
+
+	useEffect(() => {
+		installBackNav();
+	}, []);
 
 	useEffect(() => {
 		if (!giftNotice) return;
@@ -216,18 +302,19 @@ function AppContent() {
 	}
 
 	const handleOpenRecipe = (recipe: FullRecipe) => {
-		setSelectedRecipe(recipe);
+		showRecipe(recipe);
 	};
 
 	const handleCloseRecipe = () => {
+		if (backOnce()) return;
 		setSelectedRecipe(null);
 		setEditingRecipe(null);
 	};
 
 	const handleEditRecipe = () => {
+		if (!selectedRecipe) return;
 		setEditingRecipe(selectedRecipe);
-		setSelectedRecipe(null);
-		setShowAddModal(true);
+		navigate({ recipeId: null, add: true });
 	};
 
 	const handleAddToShoppingList = (name: string, qty: number, unit: string) => {
@@ -248,13 +335,14 @@ function AppContent() {
 	};
 
 	const openAddModal = () => {
-		setShowAddModal(true);
 		setEditingRecipe(null);
+		navigate({ add: true });
 	};
 
 	const openPlanSettings = () => {
-		setShowAddModal(false);
 		setOpenSettingsTo('plan');
+		if (placeRef.current.settings == null) navigate({ add: false, settings: 'main' });
+		navigate({ add: false, settings: 'plan' });
 	};
 
 	const handleCopyRecipe = (recipe: FullRecipe): true | false | 'duplicate' => {
@@ -284,15 +372,20 @@ function AppContent() {
 				onAddRecipe={openAddModal}
 				onSignOut={handleSignOut}
 				onGoHome={() => {
-					setShowFridge(false);
-					setShowAddModal(false);
-					setSelectedRecipe(null);
-					setActiveView('recipes');
 					setSelectedCategory('all');
 					setStatusFilter('all');
 					setSearchQuery('');
 					setSelectedTags([]);
+					navigate({
+						view: 'recipes',
+						fridge: false,
+						recipeId: null,
+						add: false,
+						settings: null,
+					});
 				}}
+				settings={settings}
+				onSettings={changeSettings}
 				compact={headerCompact && activeView === 'recipes' && !showFridge}
 				userId={session.user.id}
 				email={session.user.email}
@@ -311,7 +404,9 @@ function AppContent() {
 						onAddPantry={(name) => addPantryItem(name)}
 						onRemovePantry={removePantryItem}
 						onOpenRecipe={handleOpenRecipe}
-						onClose={() => setShowFridge(false)}
+						onClose={() => {
+							if (!backOnce()) setShowFridge(false);
+						}}
 					/>
 				)}
 
@@ -330,7 +425,7 @@ function AppContent() {
 								onSelectStatus={setStatusFilter}
 								searchQuery={searchQuery}
 								onSearchChange={setSearchQuery}
-								onFridgeSearch={() => setShowFridge(true)}
+								onFridgeSearch={() => navigate({ fridge: true })}
 								extraTags={extraTags}
 								selectedTags={selectedTags}
 								onSelectTags={setSelectedTags}
@@ -357,7 +452,7 @@ function AppContent() {
 										onView={() => handleOpenRecipe(recipe)}
 										onEdit={() => {
 											setEditingRecipe(recipe);
-											setShowAddModal(true);
+											navigate({ add: true });
 										}}
 										onDelete={() => deleteRecipe(recipe.recipe.id)}
 										onToggleStatus={() => toggleRecipeStatus(recipe.recipe.id)}
@@ -415,7 +510,7 @@ function AppContent() {
 						onChange={saveMealPlan}
 						onSendToShopping={(items) => {
 							items.forEach((item) => addToShoppingList(item.name, item.quantity, item.unit));
-							setActiveView('shopping');
+							navigate({ view: 'shopping', fridge: false }, { replaceOverlay: true });
 						}}
 					/>
 				)}
@@ -432,7 +527,7 @@ function AppContent() {
 						onCopyRecipe={handleCopyRecipe}
 						onDiscardCopiedFromFriend={(friendId) => {
 							if (selectedRecipe?.recipe.copiedFromUserId === friendId) {
-								handleCloseRecipe();
+								if (!undoUntil((place) => place.recipeId == null)) handleCloseRecipe();
 							}
 							removeCopiedFromFriend(friendId);
 						}}
@@ -449,11 +544,11 @@ function AppContent() {
 			<BottomNav
 				activeView={activeView}
 				onViewChange={(view) => {
-					setShowFridge(false);
-					if (view === 'friends' && activeView === 'friends') {
+					if (view === 'friends' && activeView === 'friends' && !showFridge) {
 						setFriendsHomeRequest((n) => n + 1);
+						return;
 					}
-					setActiveView(view);
+					navigate({ view, fridge: false });
 				}}
 			/>
 
@@ -490,6 +585,7 @@ function AppContent() {
 			<AddRecipeModal
 				isOpen={showAddModal}
 				onClose={() => {
+					if (backOnce()) return;
 					setShowAddModal(false);
 					setEditingRecipe(null);
 				}}
@@ -498,9 +594,8 @@ function AppContent() {
 				extraTags={extraTags}
 				existingRecipes={recipes}
 				onOpenExisting={(recipe) => {
-					setShowAddModal(false);
-					setEditingRecipe(null);
-					setSelectedRecipe(recipe);
+					recipeCache.current.set(recipe.recipe.id, recipe);
+					navigate({ add: false, recipeId: recipe.recipe.id });
 				}}
 				onNeedPlan={openPlanSettings}
 			/>

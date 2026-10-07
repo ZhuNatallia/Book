@@ -1,4 +1,5 @@
 import { useMemo, useState, type DragEvent } from 'react';
+import { useBackLayer } from '../lib/backNav';
 import { CalendarDays, ChevronLeft, ChevronRight, Minus, Plus, ShoppingBag, X } from 'lucide-react';
 import { FullRecipe, Language, MealPlan, MealPlanEntry, MealSlot } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -62,6 +63,7 @@ export function MealPlanView({ recipes, mealPlan, onChange, onSendToShopping }: 
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [showGrocery, setShowGrocery] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  useBackLayer(showGrocery, () => setShowGrocery(false));
 
   const byId = useMemo(() => {
     const map = new Map(recipes.map((r) => [r.recipe.id, r]));

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FullRecipe, FriendProfile } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useBackLayer } from '../lib/backNav';
 import { useTheme } from '../i18n/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { fetchFriendVisibleRecipes } from '../lib/recipeDb';
@@ -131,8 +132,27 @@ export function FriendsView({
   const [shareOpen, setShareOpen] = useState(false);
   const [myName, setMyName] = useState('');
 
-  useEffect(() => {
+  const leaveFriend = () => {
     setSelectedFriend(null);
+    setFriendRecipes([]);
+    setFriendCategory('all');
+    setFriendStatus('all');
+  };
+
+  useBackLayer(selectedFriend != null, leaveFriend);
+  useBackLayer(shareOpen, () => setShareOpen(false));
+  useBackLayer(pendingFriend != null, () => setPendingFriend(null));
+  useBackLayer(removingFriend != null, () => setRemovingFriend(null));
+
+  const friendOpenRef = useRef(false);
+  friendOpenRef.current = selectedFriend != null;
+
+  useEffect(() => {
+    if (!friendOpenRef.current) return;
+    setSelectedFriend(null);
+    setFriendRecipes([]);
+    setFriendCategory('all');
+    setFriendStatus('all');
   }, [homeRequest]);
 
   const filteredFriends = useMemo(() => {
@@ -450,12 +470,7 @@ export function FriendsView({
     <>
       <div className="px-4">
         <button
-          onClick={() => {
-            setSelectedFriend(null);
-            setFriendRecipes([]);
-            setFriendCategory('all');
-            setFriendStatus('all');
-          }}
+          onClick={leaveFriend}
           className={`flex items-center gap-2 mb-4 ${theme.textSecondary} hover:${theme.textPrimary}`}
         >
           <ArrowLeft className="w-4 h-4" />

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useBackLayer } from '../lib/backNav';
 import { LayoutGrid, LayoutList, ListFilter, Refrigerator, Search } from 'lucide-react';
 import { RecipeLayout } from '../lib/recipeLayout';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -72,6 +73,7 @@ export function RecipeFilterBar({
   };
 
   const closePanel = () => setOpen(false);
+  useBackLayer(open, closePanel);
 
   const applyFilters = () => {
     onSelectCategory(draftCategory);
