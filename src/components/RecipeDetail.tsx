@@ -11,6 +11,7 @@ import { NutritionCalculator } from './NutritionCalculator';
 import { FriendCircle, circlesFromVisible } from '../lib/friendCircles';
 import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2, AlertCircle, Calculator } from 'lucide-react';
 import { matchesVoice, NEXT_WORDS, REPEAT_WORDS, STOP_WORDS } from '../lib/voiceCommands';
+import { listenLocal } from '../lib/localListen';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -119,6 +120,7 @@ export function RecipeDetail({
 			},
 		) => Promise<void>;
 		stopListening: () => Promise<void>;
+		isListening: () => boolean;
 	} | null> | null>(null);
 	const [timer, setTimer] = useState<{ stepId: string; remaining: number; running: boolean } | null>(null);
 	const beepCtx = useRef<AudioContext | null>(null);
@@ -375,11 +377,11 @@ export function RecipeDetail({
 		}
 	};
 
-	const releaseLocal = () => {
+	const releaseLocal = async () => {
 		const local = localListenRef.current;
 		localListenRef.current = null;
 		try {
-			void local?.stop()?.catch(() => undefined);
+			await local?.stop();
 		} catch {
 			/* already stopped */
 		}
@@ -421,15 +423,13 @@ export function RecipeDetail({
 				else setListenError(t('voiceListenFailed'));
 				return;
 			}
+			if (voicePausedRef.current && !localMode.current) return;
 			const labels = recognizer.wordLabels();
 			const stopAt = labels.indexOf('stop');
 			const goAt = labels.indexOf('go');
 			const ignore = new Set(['_background_noise_', '_unknown_']);
-			let hits = 0;
-			let holdUntil = 0;
-			const handle = { stop: () => recognizer.stopListening() };
-			localListenRef.current = handle;
-			await recognizer.listen(
+			const handle = listenLocal(
+				recognizer,
 				(result) => {
 					if (stopAt < 0) return;
 					const scores = Array.from(result.scores as ArrayLike<number>);
@@ -456,31 +456,10 @@ export function RecipeDetail({
 						return;
 					}
 					const score = Number(scores[stopAt] ?? 0);
-					const heard = best === stopAt && score >= 0.2;
-					const now = performance.now();
-					if (!heard) {
-						if (now < holdUntil) return;
-						const wasHolding = bargeHold.current;
-						hits = 0;
-						bargeHold.current = false;
-						if (wasHolding && readingRef.current) {
-							const again = stepEcho();
-							if (again) void speakText(again, true);
-						}
-						return;
-					}
-					hits += 1;
-					// speechSynthesis.pause() does not go quiet on Android Chrome, so the
-					// microphone keeps hearing the speaker and a second "stop" never arrives.
-					// Cancel on the first hit. A clear score pauses for good; a weak one
-					// gets a quiet moment to be confirmed, otherwise the step resumes.
-					if (!bargeHold.current) {
-						bargeHold.current = true;
-						holdUntil = now + 900;
-						utteranceRef.current = null;
-						speechSynthesis.cancel();
-					}
-					if (score >= 0.3 || hits >= 2) pauseByVoice();
+					if (best !== stopAt || score < 0.2) return;
+					// The model hears the speaker too, so a second confirming "stop" rarely
+					// comes. Waiting for one used to replay the step and swallow the command.
+					pauseByVoice();
 				},
 				{
 					overlapFactor: 0.5,
@@ -488,18 +467,18 @@ export function RecipeDetail({
 					invokeCallbackOnNoiseAndUnknown: true,
 				},
 			);
+			localListenRef.current = handle;
+			if (!(await handle.started)) return;
 			setStopReady(true);
-			if (localListenRef.current !== handle) return;
-			if (generation !== listenGen.current || (!readingRef.current && !voicePausedRef.current)) {
-				localListenRef.current = null;
-				void recognizer.stopListening().catch(() => undefined);
-			}
-		} catch (err) {
-			const message = err instanceof Error ? err.message : '';
-			if (message.includes('streaming is ongoing')) {
-				setStopReady(true);
+			if (localListenRef.current !== handle) {
+				void handle.stop();
 				return;
 			}
+			if (generation !== listenGen.current || (!readingRef.current && !voicePausedRef.current)) {
+				localListenRef.current = null;
+				void handle.stop();
+			}
+		} catch {
 			localListenRef.current = null;
 			if (readingRef.current && generation === listenGen.current) {
 				localMode.current = false;
@@ -577,7 +556,7 @@ export function RecipeDetail({
 				// Right after the speaker stops, the phone often still holds the mic.
 				// Retry recognition so «дальше» and «повтори» can land. If the speech
 				// service itself is down, the offline model can still hear "go".
-				if (code === 'audio-capture' && voicePausedRef.current && cloudRetry.current < 3) {
+				if (code === 'audio-capture' && voicePausedRef.current && cloudRetry.current < 5) {
 					cloudRetry.current += 1;
 					window.setTimeout(() => {
 						if (!voicePausedRef.current || generation !== listenGen.current || localMode.current) return;
@@ -634,16 +613,16 @@ export function RecipeDetail({
 		setIsSpeaking(false);
 		setStopReady(true);
 		if ('speechSynthesis' in window) speechSynthesis.cancel();
-		releaseLocal();
 		abortCloud();
 		const generation = listenGen.current;
-		// The speaker is quiet now, so the browser can hear "дальше" and "повтори".
-		// Starting it in the same turn as the local model keeps the mic for itself
-		// and the stop detector never hears the cook.
-		window.setTimeout(() => {
-			if (!voicePausedRef.current || generation !== listenGen.current) return;
-			startListening();
-		}, 250);
+		// The speaker is quiet now, so the browser can hear "дальше" and "повтори",
+		// but only once the stop detector has actually handed the microphone back.
+		void releaseLocal().then(() => {
+			window.setTimeout(() => {
+				if (!voicePausedRef.current || generation !== listenGen.current) return;
+				startListening();
+			}, 250);
+		});
 	};
 
 	const resumeReading = (target: 'same' | 'next') => {
