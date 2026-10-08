@@ -10,6 +10,7 @@ import { VisibilityEye } from './VisibilityEye';
 import { NutritionCalculator } from './NutritionCalculator';
 import { FriendCircle, circlesFromVisible } from '../lib/friendCircles';
 import { X, Minus, Plus, Play, Pause, RotateCcw, Clock, ShoppingBag, ExternalLink, Pencil, Trash2, ChefHat, UtensilsCrossed, Flame, CheckCircle, BookmarkPlus, Volume2, AlertCircle, Calculator } from 'lucide-react';
+import { matchesVoice, NEXT_WORDS, REPEAT_WORDS, STOP_WORDS } from '../lib/voiceCommands';
 
 // Recipes imported from a video or a social post often have no written steps. For those we
 // link back to the original instead of showing an empty step list.
@@ -31,126 +32,6 @@ function videoSourceLabel(url?: string) {
 
 // Units are stored in canonical form and rendered from the dictionary of the active language
 const UNIT_KEYS = ['g', 'kg', 'ml', 'l', 'pcs', 'tsp', 'tbsp', 'pinch', 'cup'];
-
-const foldVoice = (text: string) =>
-	text
-		.toLowerCase()
-		.replace(/ё/g, 'е')
-		.normalize('NFD')
-		.replace(/\p{M}/gu, '')
-		.replace(/[.!?,…'’«»"]+/g, ' ');
-
-const STOP_WORDS = [
-	'стоп',
-	'stop',
-	'stopp',
-	'pause',
-	'пауза',
-	'pausa',
-	'pauza',
-	'останови',
-	'остановись',
-	'подожди',
-	'хватит',
-	'зупинись',
-	'зупини',
-	'зачекай',
-	'досить',
-	'wait',
-	'hold on',
-	'halt',
-	'warte',
-	'stój',
-	'stoj',
-	'czekaj',
-	'ferma',
-	'fermati',
-	'aspetta',
-	'basta',
-	'para',
-	'pare',
-	'detente',
-	'espera',
-	'alto',
-	'arrête',
-	'arrete',
-	'arrêt',
-	'arret',
-	'attends',
-	'тоқта',
-	'тоқтат',
-	'күте тұр',
-];
-
-// After a pause: these move on to the following step...
-const NEXT_WORDS = [
-	'дальше',
-	'далее',
-	'следующий',
-	'next',
-	'weiter',
-	'nächster',
-	'далі',
-	'наступний',
-	'dalej',
-	'następny',
-	'avanti',
-	'prossimo',
-	'siguiente',
-	'adelante',
-	'suivant',
-	'la suite',
-	'әрі',
-	'әрі қарай',
-	'келесі',
-];
-
-// ...and these read the interrupted step again from its start.
-const REPEAT_WORDS = [
-	'продолжай',
-	'продолжи',
-	'повтори',
-	'ещё раз',
-	'continue',
-	'go on',
-	'repeat',
-	'again',
-	'nochmal',
-	'noch einmal',
-	'wiederhole',
-	'продовжуй',
-	'продовж',
-	'ще раз',
-	'kontynuuj',
-	'powtórz',
-	'jeszcze raz',
-	'continua',
-	'ripeti',
-	'ancora',
-	'sigue',
-	'continúa',
-	'repite',
-	'otra vez',
-	'continuez',
-	'répète',
-	'répétez',
-	'encore',
-	'жалғастыр',
-	'қайтала',
-];
-
-const voiceTokens = (text: string) => foldVoice(text).split(/\s+/).filter(Boolean);
-
-// The microphone also hears the step being read aloud, so a command word that occurs in that
-// step ("para" in "aceite para freír", "хватит" in "этого хватит") is its echo, not the user.
-const matchesVoice = (text: string, words: string[], echoOf = '') => {
-	const folded = ` ${voiceTokens(text).join(' ')} `;
-	const echo = ` ${voiceTokens(echoOf).join(' ')} `;
-	return words.some((word) => {
-		const w = ` ${voiceTokens(word).join(' ')} `;
-		return folded.includes(w) && !echo.includes(w);
-	});
-};
 
 const SPEECH_LOCALES: Record<string, string> = {
 	ru: 'ru-RU',
@@ -474,12 +355,33 @@ export function RecipeDetail({
 		return VOICE_FALLBACK[lang] ? voiceFor(voices, VOICE_FALLBACK[lang]) : null;
 	};
 
-	const isStopCommand = (text: string) => {
-		const reading = readingRef.current ? stepsRef.current[indexRef.current] : undefined;
-		return matchesVoice(text, STOP_WORDS, reading ? getStepInstruction(reading) : '');
+	const stepEcho = () => {
+		const step = stepsRef.current[indexRef.current];
+		return step ? getStepInstruction(step) : '';
 	};
-	const isNextCommand = (text: string) => matchesVoice(text, NEXT_WORDS);
-	const isRepeatCommand = (text: string) => matchesVoice(text, REPEAT_WORDS);
+	const isStopCommand = (text: string) => matchesVoice(text, STOP_WORDS, stepEcho());
+	const isNextCommand = (text: string) => matchesVoice(text, NEXT_WORDS, stepEcho());
+	const isRepeatCommand = (text: string) => matchesVoice(text, REPEAT_WORDS, stepEcho());
+
+	const abortCloud = () => {
+		const rec = listenRef.current;
+		listenRef.current = null;
+		try {
+			rec?.abort();
+		} catch {
+			/* already stopped */
+		}
+	};
+
+	const releaseLocal = () => {
+		const local = localListenRef.current;
+		localListenRef.current = null;
+		try {
+			void local?.stop()?.catch(() => undefined);
+		} catch {
+			/* already stopped */
+		}
+	};
 
 	const stopListening = () => {
 		listenGen.current += 1;
@@ -507,8 +409,13 @@ export function RecipeDetail({
 		if (!readingRef.current && !voicePausedRef.current) return;
 		try {
 			const recognizer = await prepareStopModel();
-			if (!recognizer || generation !== listenGen.current || localListenRef.current) return;
+			if (generation !== listenGen.current || localListenRef.current) return;
 			if (!readingRef.current && !voicePausedRef.current) return;
+			if (!recognizer) {
+				localMode.current = false;
+				startListening();
+				return;
+			}
 			const labels = recognizer.wordLabels();
 			const stopAt = labels.indexOf('stop');
 			const goAt = labels.indexOf('go');
@@ -526,28 +433,49 @@ export function RecipeDetail({
 						if (ignore.has(labels[i])) continue;
 						if (best < 0 || Number(scores[i]) > Number(scores[best])) best = i;
 					}
+					const goScore = goAt >= 0 ? Number(scores[goAt] ?? 0) : 0;
+					const heardGo = best === goAt && goScore >= 0.35;
 					if (voicePausedRef.current) {
 						if (performance.now() < continueAfter.current) return;
-						const goScore = goAt >= 0 ? Number(scores[goAt] ?? 0) : 0;
-						if (goScore >= 0.25 && best === goAt) resumeReading('same');
+						if (heardGo) resumeReading('next');
 						return;
 					}
 					if (!readingRef.current) return;
+					if (heardGo) {
+						const next = indexRef.current + 1;
+						utteranceRef.current = null;
+						bargeHold.current = false;
+						speechSynthesis.cancel();
+						if (next < stepsRef.current.length) readFrom(next);
+						else stopReading();
+						return;
+					}
 					const score = Number(scores[stopAt] ?? 0);
 					const heard = best === stopAt && score >= 0.2;
 					const now = performance.now();
 					if (!heard) {
 						if (now < holdUntil) return;
+						const wasHolding = bargeHold.current;
 						hits = 0;
 						bargeHold.current = false;
-						if (speechSynthesis.paused && readingRef.current) speechSynthesis.resume();
+						if (wasHolding && readingRef.current && !speechSynthesis.speaking) {
+							const again = stepEcho();
+							if (again) void speakText(again, true);
+						}
 						return;
 					}
 					hits += 1;
-					if (speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.pause();
-					bargeHold.current = true;
-					holdUntil = now + 900;
-					if (score >= 0.35 || hits >= 2) pauseByVoice();
+					// speechSynthesis.pause() does not go quiet on Android Chrome, so the
+					// microphone keeps hearing the speaker and a second "stop" never arrives.
+					// Cancel on the first hit. A clear score pauses for good; a weak one
+					// gets a quiet moment to be confirmed, otherwise the step resumes.
+					if (!bargeHold.current) {
+						bargeHold.current = true;
+						holdUntil = now + 900;
+						utteranceRef.current = null;
+						speechSynthesis.cancel();
+					}
+					if (score >= 0.3 || hits >= 2) pauseByVoice();
 				},
 				{
 					overlapFactor: 0.5,
@@ -561,10 +489,16 @@ export function RecipeDetail({
 				localListenRef.current = null;
 				void recognizer.stopListening().catch(() => undefined);
 			}
-		} catch {
-			if (voicePausedRef.current || localListenRef.current === null) return;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : '';
+			if (message.includes('streaming is ongoing')) {
+				setStopReady(true);
+				return;
+			}
+			localListenRef.current = null;
 			if (readingRef.current && generation === listenGen.current) {
-				setListenError(t('voiceListenFailed'));
+				localMode.current = false;
+				startListening();
 			}
 		}
 	};
@@ -603,23 +537,24 @@ export function RecipeDetail({
 		recognition.maxAlternatives = 3;
 		recognition.onresult = (event) => {
 			if (!readingRef.current && !voicePausedRef.current) return;
+			let resume: 'next' | 'same' | null = null;
 			for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
 				const row = event.results[i];
 				const options = Math.max(row.length ?? 1, 1);
 				for (let alt = 0; alt < options; alt++) {
 					const text = row[alt]?.transcript ?? '';
 					if (isStopCommand(text)) {
-						pauseByVoice();
+						if (readingRef.current) pauseByVoice();
 						return;
 					}
-					const resume = isNextCommand(text) ? 'next' : isRepeatCommand(text) ? 'same' : null;
-					if (resume) {
-						if (performance.now() < continueAfter.current) return;
-						resumeReading(resume);
-						return;
+					if (!resume) {
+						if (isNextCommand(text)) resume = 'next';
+						else if (isRepeatCommand(text)) resume = 'same';
 					}
 				}
 			}
+			if (!resume || performance.now() < continueAfter.current) return;
+			resumeReading(resume);
 		};
 		recognition.onerror = (event) => {
 			const code = (event as Event & { error?: string }).error ?? '';
@@ -629,16 +564,11 @@ export function RecipeDetail({
 				return;
 			}
 			if (code === 'aborted' || code === 'no-speech') return;
-			if (code === 'network') {
+			if (code === 'network' || code === 'audio-capture') {
 				cloudDead = true;
 				if (listenRef.current === recognition) listenRef.current = null;
-				if (voicePausedRef.current) {
-					window.setTimeout(() => {
-						if (!voicePausedRef.current || generation !== listenGen.current) return;
-						startListening();
-					}, 700);
-					return;
-				}
+				// No connection to the speech service, or the mic is still busy.
+				// The offline model still hears "go" / «гоу» and moves to the next step.
 				localMode.current = true;
 				void startLocalStop(generation);
 			}
@@ -649,6 +579,7 @@ export function RecipeDetail({
 			const keep = readingRef.current || voicePausedRef.current;
 			if (!keep || generation !== listenGen.current) return;
 			window.setTimeout(() => {
+				if (localMode.current) return;
 				if (!(readingRef.current || voicePausedRef.current) || generation !== listenGen.current) return;
 				startListening();
 			}, 300);
@@ -659,6 +590,7 @@ export function RecipeDetail({
 		} catch {
 			listenRef.current = null;
 			window.setTimeout(() => {
+				if (localMode.current) return;
 				if (!(readingRef.current || voicePausedRef.current) || generation !== listenGen.current) return;
 				startListening();
 			}, 300);
@@ -671,21 +603,22 @@ export function RecipeDetail({
 		utteranceRef.current = null;
 		voicePausedRef.current = true;
 		bargeHold.current = false;
-		continueAfter.current = performance.now() + 1600;
+		continueAfter.current = performance.now() + 450;
 		localMode.current = false;
 		setVoicePaused(true);
 		setIsSpeaking(false);
 		setStopReady(true);
 		if ('speechSynthesis' in window) speechSynthesis.cancel();
-		const rec = listenRef.current;
-		listenRef.current = null;
-		try {
-			rec?.abort();
-		} catch {
-			/* already stopped */
-		}
-		startListening();
-		void startLocalStop(listenGen.current);
+		releaseLocal();
+		abortCloud();
+		const generation = listenGen.current;
+		// The speaker is quiet now, so the browser can hear "дальше" and "повтори".
+		// Starting it in the same turn as the local model keeps the mic for itself
+		// and the stop detector never hears the cook.
+		window.setTimeout(() => {
+			if (!voicePausedRef.current || generation !== listenGen.current) return;
+			startListening();
+		}, 400);
 	};
 
 	const resumeReading = (target: 'same' | 'next') => {
@@ -727,6 +660,7 @@ export function RecipeDetail({
 			utterance.lang = voice.lang;
 		}
 		utterance.onend = () => {
+			if (bargeHold.current) return;
 			if (utteranceRef.current !== utterance) return;
 			if (!chain || !readingRef.current) {
 				setIsSpeaking(false);
@@ -775,8 +709,14 @@ export function RecipeDetail({
 			if (!beepCtx.current) beepCtx.current = new AudioCtx();
 			void beepCtx.current.resume();
 		}
+		// While the step is read aloud, only the local "stop" detector may use the
+		// microphone. Web Speech on a phone hears the speaker, then takes the mic
+		// away from the detector, so "стоп" never lands.
+		localMode.current = true;
+		voicePausedRef.current = false;
+		bargeHold.current = false;
+		abortCloud();
 		void startLocalStop(listenGen.current);
-		startListening();
 		void speakText(text, true);
 	};
 
