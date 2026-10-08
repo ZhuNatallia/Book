@@ -106,6 +106,8 @@ export function RecipeDetail({
 	const listenGen = useRef(0);
 	const localListenRef = useRef<{ stop: () => Promise<void> } | null>(null);
 	const localMode = useRef(false);
+	const localUnavailable = useRef(false);
+	const cloudRetry = useRef(0);
 	const preparedStop = useRef<Promise<{
 		wordLabels: () => string[];
 		listen: (
@@ -412,8 +414,11 @@ export function RecipeDetail({
 			if (generation !== listenGen.current || localListenRef.current) return;
 			if (!readingRef.current && !voicePausedRef.current) return;
 			if (!recognizer) {
+				localUnavailable.current = true;
 				localMode.current = false;
-				startListening();
+				const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+				if (Ctor) startListening();
+				else setListenError(t('voiceListenFailed'));
 				return;
 			}
 			const labels = recognizer.wordLabels();
@@ -458,7 +463,7 @@ export function RecipeDetail({
 						const wasHolding = bargeHold.current;
 						hits = 0;
 						bargeHold.current = false;
-						if (wasHolding && readingRef.current && !speechSynthesis.speaking) {
+						if (wasHolding && readingRef.current) {
 							const again = stepEcho();
 							if (again) void speakText(again, true);
 						}
@@ -498,7 +503,9 @@ export function RecipeDetail({
 			localListenRef.current = null;
 			if (readingRef.current && generation === listenGen.current) {
 				localMode.current = false;
-				startListening();
+				const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+				if (Ctor) startListening();
+				else setListenError(t('voiceListenFailed'));
 			}
 		}
 	};
@@ -567,10 +574,27 @@ export function RecipeDetail({
 			if (code === 'network' || code === 'audio-capture') {
 				cloudDead = true;
 				if (listenRef.current === recognition) listenRef.current = null;
-				// No connection to the speech service, or the mic is still busy.
-				// The offline model still hears "go" / «гоу» and moves to the next step.
-				localMode.current = true;
-				void startLocalStop(generation);
+				// Right after the speaker stops, the phone often still holds the mic.
+				// Retry recognition so «дальше» and «повтори» can land. If the speech
+				// service itself is down, the offline model can still hear "go".
+				if (code === 'audio-capture' && voicePausedRef.current && cloudRetry.current < 3) {
+					cloudRetry.current += 1;
+					window.setTimeout(() => {
+						if (!voicePausedRef.current || generation !== listenGen.current || localMode.current) return;
+						startListening();
+					}, 700);
+					return;
+				}
+				if (!localUnavailable.current) {
+					localMode.current = true;
+					void startLocalStop(generation);
+					return;
+				}
+				window.setTimeout(() => {
+					if (localMode.current || generation !== listenGen.current) return;
+					if (!(readingRef.current || voicePausedRef.current)) return;
+					startListening();
+				}, 700);
 			}
 		};
 		recognition.onend = () => {
@@ -603,6 +627,7 @@ export function RecipeDetail({
 		utteranceRef.current = null;
 		voicePausedRef.current = true;
 		bargeHold.current = false;
+		cloudRetry.current = 0;
 		continueAfter.current = performance.now() + 450;
 		localMode.current = false;
 		setVoicePaused(true);
@@ -618,7 +643,7 @@ export function RecipeDetail({
 		window.setTimeout(() => {
 			if (!voicePausedRef.current || generation !== listenGen.current) return;
 			startListening();
-		}, 400);
+		}, 250);
 	};
 
 	const resumeReading = (target: 'same' | 'next') => {
@@ -637,6 +662,7 @@ export function RecipeDetail({
 	const stopReading = () => {
 		readingRef.current = false;
 		voicePausedRef.current = false;
+		bargeHold.current = false;
 		setVoicePaused(false);
 		utteranceRef.current = null;
 		stopListening();
@@ -647,9 +673,14 @@ export function RecipeDetail({
 	const speakText = async (text: string, chain: boolean) => {
 		if (!('speechSynthesis' in window) || !text.trim()) return;
 		const voices = await loadVoices();
-		if (chain && !readingRef.current) return;
+		if (chain && (!readingRef.current || bargeHold.current)) return;
+		// Chrome drops speak() called in the same turn as cancel(), so a step
+		// resumed after a weak "stop" would stay silent.
+		const restart = speechSynthesis.speaking || speechSynthesis.pending;
 		utteranceRef.current = null;
 		speechSynthesis.cancel();
+		if (restart) await new Promise((resolve) => window.setTimeout(resolve, 60));
+		if (chain && (!readingRef.current || bargeHold.current)) return;
 		const utterance = new SpeechSynthesisUtterance(text);
 		utteranceRef.current = utterance;
 		utterance.lang = SPEECH_LOCALES[langRef.current] || 'ru-RU';
@@ -678,6 +709,7 @@ export function RecipeDetail({
 			}
 		};
 		utterance.onerror = () => {
+			if (bargeHold.current) return;
 			if (utteranceRef.current !== utterance) return;
 		};
 		setIsSpeaking(true);
@@ -715,6 +747,8 @@ export function RecipeDetail({
 		localMode.current = true;
 		voicePausedRef.current = false;
 		bargeHold.current = false;
+		cloudRetry.current = 0;
+		setVoicePaused(false);
 		abortCloud();
 		void startLocalStop(listenGen.current);
 		void speakText(text, true);
