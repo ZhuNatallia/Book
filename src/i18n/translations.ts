@@ -396,7 +396,7 @@ export const translations = {
 		readStep: 'Прочитать шаг',
 		stopReading: 'Стоп',
 		voiceSayStop: 'Или скажите «стоп»',
-		voiceSayNext: 'Скажите «дальше» — следующий шаг или «повтори» — этот шаг ещё раз',
+		voiceSayNext: 'Скажите «дальше» или «гоу» — следующий шаг, «повтори» — этот шаг ещё раз',
 		voiceStopArming: 'Секунду, подключаю микрофон…',
 		timerPause: 'Пауза',
 		timerResume: 'Продолжить',
