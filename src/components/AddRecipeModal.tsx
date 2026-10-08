@@ -438,33 +438,29 @@ export function AddRecipeModal({
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
-    recognition.interimResults = true;
-    // One phrase, then stop. Continuous mode on Android ends the session,
-    // restarts it, and delivers the same words again with no space between them.
+    // One finished phrase, then stop. Interim and continuous results on Android
+    // restart the session and deliver the same words again with no space.
+    recognition.interimResults = false;
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
 
-    const committed = steps[idx]?.instruction.trim() ?? '';
-
-    const writeSpoken = (pieces: string[]) => {
+    let written = false;
+    recognition.onresult = (event) => {
+      if (written) return;
+      const pieces: string[] = [];
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) pieces.push(event.results[i][0]?.transcript ?? '');
+      }
       const spoken = joinSpeechPieces(pieces);
       if (!spoken) return;
-      const next = capitalizeFirst(committed ? `${committed} ${spoken}` : spoken);
-      setSteps((prev) => {
-        if ((prev[idx]?.instruction ?? '') === next) return prev;
-        return prev.map((s, i) => (i === idx ? { ...s, instruction: next } : s));
-      });
-    };
-
-    recognition.onresult = (event) => {
-      const finals: string[] = [];
-      const interim: string[] = [];
-      for (let i = 0; i < event.results.length; i++) {
-        const piece = event.results[i][0]?.transcript ?? '';
-        if (event.results[i].isFinal) finals.push(piece);
-        else interim.push(piece);
-      }
-      writeSpoken([...finals, ...interim]);
+      written = true;
+      setSteps((prev) =>
+        prev.map((s, i) => {
+          if (i !== idx) return s;
+          const before = s.instruction.trim();
+          return { ...s, instruction: capitalizeFirst(before ? `${before} ${spoken}` : spoken) };
+        }),
+      );
     };
     recognition.onerror = (event) => {
       const code = (event as Event & { error?: string }).error ?? '';
