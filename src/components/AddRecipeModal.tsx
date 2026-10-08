@@ -12,6 +12,7 @@ import { useOnline } from '../lib/online';
 import { findExistingRecipe } from '../lib/recipeMatch';
 import { usePlan } from '../i18n/PlanContext';
 import { isQuotaError } from '../lib/plan';
+import { joinSpeechPieces } from '../lib/speechTranscript';
 import { ALL_CIRCLES } from '../lib/friendCircles';
 import { X, Wand2, CreditCard as Edit3, Plus, Trash2, Loader2, CheckCircle, Link2, Download, Sparkles, Film, Camera, AlertCircle, Mic } from 'lucide-react';
 
@@ -438,31 +439,32 @@ export function AddRecipeModal({
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
     recognition.interimResults = true;
-    recognition.continuous = true;
+    // One phrase, then stop. Continuous mode on Android ends the session,
+    // restarts it, and delivers the same words again with no space between them.
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
 
-    let committed = steps[idx]?.instruction.trim() ?? '';
-    let sessionFinal = '';
+    const committed = steps[idx]?.instruction.trim() ?? '';
 
-    const writeSpoken = (extra: string) => {
-      const spoken = extra.trim();
-      const merged = committed && spoken ? `${committed} ${spoken}` : committed || spoken;
-      if (!merged) return;
-      setSteps((prev) =>
-        prev.map((s, i) => (i === idx ? { ...s, instruction: capitalizeFirst(merged) } : s)),
-      );
+    const writeSpoken = (pieces: string[]) => {
+      const spoken = joinSpeechPieces(pieces);
+      if (!spoken) return;
+      const next = capitalizeFirst(committed ? `${committed} ${spoken}` : spoken);
+      setSteps((prev) => {
+        if ((prev[idx]?.instruction ?? '') === next) return prev;
+        return prev.map((s, i) => (i === idx ? { ...s, instruction: next } : s));
+      });
     };
 
     recognition.onresult = (event) => {
-      let finalText = '';
-      let interim = '';
+      const finals: string[] = [];
+      const interim: string[] = [];
       for (let i = 0; i < event.results.length; i++) {
         const piece = event.results[i][0]?.transcript ?? '';
-        if (event.results[i].isFinal) finalText += piece;
-        else interim += piece;
+        if (event.results[i].isFinal) finals.push(piece);
+        else interim.push(piece);
       }
-      sessionFinal = finalText;
-      writeSpoken(`${finalText} ${interim}`);
+      writeSpoken([...finals, ...interim]);
     };
     recognition.onerror = (event) => {
       const code = (event as Event & { error?: string }).error ?? '';
@@ -479,16 +481,8 @@ export function AddRecipeModal({
     };
     recognition.onend = () => {
       if (recognitionRef.current !== recognition) return;
-      const said = sessionFinal.trim();
-      if (said) committed = committed ? `${committed} ${said}` : said;
-      sessionFinal = '';
-      try {
-        recognition.start();
-      } catch {
-        recognitionRef.current = null;
-        setRecordingStep(null);
-        setVoiceError(t('voiceListenFailed'));
-      }
+      recognitionRef.current = null;
+      setRecordingStep(null);
     };
 
     recognitionRef.current = recognition;
