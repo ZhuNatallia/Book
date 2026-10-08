@@ -438,41 +438,27 @@ export function AddRecipeModal({
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = SPEECH_LOCALES[language] ?? 'en-US';
-    recognition.interimResults = true;
-    // One phrase, then stop. Continuous mode on Android ends the session,
-    // restarts it, and delivers the same words again with no space between them.
+    recognition.interimResults = false;
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
 
-    const committed = steps[idx]?.instruction.trim() ?? '';
-
-    const writeSpoken = (pieces: string[]) => {
-      const spoken = joinSpeechPieces(pieces);
-      if (!spoken) return;
-      const next = capitalizeFirst(committed ? `${committed} ${spoken}` : spoken);
-      setSteps((prev) => {
-        if ((prev[idx]?.instruction ?? '') === next) return prev;
-        return prev.map((s, i) => (i === idx ? { ...s, instruction: next } : s));
-      });
-    };
-
     recognition.onresult = (event) => {
-      const finals: string[] = [];
-      const interim: string[] = [];
-      for (let i = 0; i < event.results.length; i++) {
-        const piece = event.results[i][0]?.transcript ?? '';
-        if (event.results[i].isFinal) finals.push(piece);
-        else interim.push(piece);
-      }
-      writeSpoken([...finals, ...interim]);
+      const transcript = joinSpeechPieces([event.results[0]?.[0]?.transcript ?? '']);
+      if (!transcript) return;
+      setSteps((prev) =>
+        prev.map((s, i) => {
+          if (i !== idx) return s;
+          const merged = s.instruction.trim()
+            ? `${s.instruction.trim()} ${transcript}`
+            : transcript;
+          return { ...s, instruction: capitalizeFirst(merged) };
+        }),
+      );
     };
     recognition.onerror = (event) => {
       const code = (event as Event & { error?: string }).error ?? '';
-      if (code === 'aborted' || code === 'no-speech') return;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
         setVoiceError(t('voiceMicDenied'));
-      } else {
-        setVoiceError(t('voiceListenFailed'));
       }
       if (recognitionRef.current === recognition) {
         recognitionRef.current = null;
@@ -480,9 +466,10 @@ export function AddRecipeModal({
       }
     };
     recognition.onend = () => {
-      if (recognitionRef.current !== recognition) return;
-      recognitionRef.current = null;
-      setRecordingStep(null);
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+        setRecordingStep(null);
+      }
     };
 
     recognitionRef.current = recognition;
@@ -493,7 +480,6 @@ export function AddRecipeModal({
     } catch {
       recognitionRef.current = null;
       setRecordingStep(null);
-      setVoiceError(t('voiceListenFailed'));
     }
   };
 
